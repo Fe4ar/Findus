@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, ApiError, formatSize, NodeDetail } from "./api";
 import { OnlyOffice, isOffice } from "./OnlyOffice";
 import { DrawioView } from "./Drawio";
+import { ask, notify } from "./Dialog";
 
 export async function uploadFile(parent: string, file: File) {
   const form = new FormData();
@@ -53,7 +54,8 @@ export function FileView({ node, onChanged }: { node: NodeDetail; onChanged: (n:
                 const file = e.target.files?.[0];
                 e.target.value = "";
                 if (!file) return;
-                const comment = prompt("Kommentar zur neuen Version (optional):") ?? "";
+                const comment = await ask({ title: "Neue Version hochladen", label: "Kommentar (optional)", ok: "Hochladen" });
+                if (comment === null) return;
                 const form = new FormData();
                 form.append("file", file);
                 form.append("comment", comment);
@@ -61,7 +63,7 @@ export function FileView({ node, onChanged }: { node: NodeDetail; onChanged: (n:
                 try {
                   onChanged(await api(`/api/files/${node.id}/versions`, { method: "POST", body: form }));
                 } catch (err) {
-                  alert(err instanceof ApiError ? err.message : "Upload fehlgeschlagen.");
+                  notify(err instanceof ApiError ? err.message : "Upload fehlgeschlagen.");
                 }
                 setBusy(false);
               }} />

@@ -9,7 +9,7 @@ die() { echo "export-public: $*" >&2; exit 1; }
 ref=${1:?usage: export-public.sh <git-ref> <version> --notes <notes.md> [<public-dir>]}; ver=${2:?version missing}
 [[ ${3:-} == --notes && -f ${4:-} ]] || die "--notes <file> missing"
 notes=$(realpath "$4"); out=${5:-$HOME/findus-public}
-[[ $ver =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "version must be SemVer X.Y.Z, got $ver"
+[[ $ver =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || die "version must be SemVer X.Y.Z[-pre], got $ver"
 src=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 git -C "$src" rev-parse --verify -q "$ref^{commit}" >/dev/null || die "unknown ref $ref"
 

@@ -7,6 +7,7 @@ export interface NodeSummary {
   status: "draft" | "published";
   position: number;
   has_children: boolean;
+  writable?: boolean; // tree listings only
 }
 
 export interface FileVersion {
@@ -30,6 +31,8 @@ export interface NodeDetail extends NodeSummary {
   created_at: string;
   updated_by: string | null;
   updated_at: string;
+  is_public: boolean;
+  space: "wiki" | "karte";
   breadcrumb: { id: string; title: string; kind: Kind }[];
   permissions: { read: boolean; write: boolean; publish: boolean; manage: boolean };
   content?: object | null;
@@ -43,7 +46,11 @@ export interface Me {
   username?: string;
   name?: string;
   is_superuser?: boolean;
+  can_create_area?: boolean;
+  theme?: Theme;
 }
+
+export type Theme = "auto" | "light" | "dark";
 
 export class ApiError extends Error {
   constructor(public status: number, public body: any) {
@@ -56,6 +63,7 @@ function csrfToken() {
 }
 
 export async function api<T = any>(path: string, opts: { method?: string; body?: unknown } = {}): Promise<T> {
+  if (import.meta.env.VITE_DEMO) return (await import("./demo")).demoApi<T>(path, opts);
   const isForm = opts.body instanceof FormData;
   const res = await fetch(path, {
     method: opts.method ?? "GET",

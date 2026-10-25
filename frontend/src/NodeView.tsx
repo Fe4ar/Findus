@@ -5,9 +5,12 @@ import hljs from "highlight.js/lib/common";
 import { diffWords, type Change } from "diff";
 import { api, ApiError, formatDate, NodeDetail } from "./api";
 import { MapLinks } from "./Karte";
+import { useDirty } from "./Tabs";
 import { Editor } from "./Editor";
 import { FileView, uploadFile } from "./FileView";
+import { Rights } from "./Rights";
 import { DrawioView, EMPTY_DRAWIO } from "./Drawio";
+import { ask, confirmDialog, notify } from "./Dialog";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -79,11 +82,17 @@ function Container({ node, onSelect, onChanged }: { node: NodeDetail; onSelect: 
   }, [node.id]);
 
   async function create(kind: "folder" | "page") {
-    const title = prompt(kind === "folder" ? "Name des neuen Ordners:" : "Titel der neuen Seite:");
+    const title = await ask(kind === "folder"
+      ? { title: "Neuer Ordner", label: "Name", ok: "Anlegen", validate: (v) => (v.trim() ? null : "Bitte einen Namen eingeben.") }
+      : { title: "Neue Seite", label: "Titel", ok: "Anlegen", validate: (v) => (v.trim() ? null : "Bitte einen Namen eingeben.") });
     if (!title?.trim()) return;
-    const n = await api<NodeDetail>("/api/nodes", { method: "POST", body: { kind, title, parent: node.id } });
-    onChanged();
-    onSelect(n.id);
+    try {
+      const n = await api<NodeDetail>("/api/nodes", { method: "POST", body: { kind, title: title.trim(), parent: node.id } });
+      onChanged();
+      onSelect(n.id);
+    } catch (e) {
+      notify(e instanceof ApiError ? e.message : "Anlegen fehlgeschlagen.");
+    }
   }
 
   return (
@@ -102,7 +111,7 @@ function Container({ node, onSelect, onChanged }: { node: NodeDetail; onSelect: 
               try {
                 for (const f of files) await uploadFile(node.id, f);
               } catch (err) {
-                alert(err instanceof ApiError ? err.message : "Upload fehlgeschlagen.");
+                notify(err instanceof ApiError ? err.message : "Upload fehlgeschlagen.");
               }
               setBusy(false);
               onChanged();
@@ -144,6 +153,7 @@ export function Html({ html }: { html: string }) {
 
 function Page({ node, onSaved }: { node: NodeDetail; onSaved: (n: NodeDetail) => void }) {
   const [editing, setEditing] = useState(false);
+  useDirty(editing);
   const [comment, setComment] = useState("");
   const [conflict, setConflict] = useState<NodeDetail | null>(null);
   const [saving, setSaving] = useState(false);
@@ -163,7 +173,7 @@ function Page({ node, onSaved }: { node: NodeDetail; onSaved: (n: NodeDetail) =>
       onSaved(n);
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) setConflict(e.body.current);
-      else alert(e instanceof ApiError ? e.message : "Speichern fehlgeschlagen.");
+      else notify(e instanceof ApiError ? e.message : "Speichern fehlgeschlagen.");
     }
     setSaving(false);
   }
@@ -174,22 +184,22 @@ function Page({ node, onSaved }: { node: NodeDetail; onSaved: (n: NodeDetail) =>
       const n = await uploadFile(node.parent, file);
       return n.versions?.[0]?.url ?? null;
     } catch (e) {
-      alert(e instanceof ApiError ? e.message : "Bild-Upload fehlgeschlagen.");
+      notify(e instanceof ApiError ? e.message : "Bild-Upload fehlgeschlagen.");
       return null;
     }
   }
 
   async function addDiagram() {
-    const ref = prompt("Link oder ID eines vorhandenen .drawio-Schaubilds (leer = neues Schaubild im selben Ordner):");
+    const ref = await ask({ title: "Schaubild einfügen", label: "Link oder ID eines vorhandenen .drawio-Schaubilds (leer = neues Schaubild im selben Ordner)", ok: "Einfügen" });
     if (ref === null) return null;
     const id = ref.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/)?.[0];
     if (id) return id;
-    if (ref.trim()) return alert("Keine gültige Schaubild-ID."), null;
+    if (ref.trim()) return notify("Keine gültige Schaubild-ID."), null;
     if (!node.parent) return null;
     try {
       return (await uploadFile(node.parent, new File([EMPTY_DRAWIO], `${node.title}.drawio`, { type: "application/xml" }))).id;
     } catch (e) {
-      alert(e instanceof ApiError ? e.message : "Schaubild anlegen fehlgeschlagen.");
+      notify(e instanceof ApiError ? e.message : "Schaubild anlegen fehlgeschlagen.");
       return null;
     }
   }
@@ -285,7 +295,7 @@ function History({ node, onRestored }: { node: NodeDetail; onRestored: (n: NodeD
                     <button onClick={() => showDiff(i)}>Änderungen</button>
                     {i > 0 && node.permissions.write && (
                       <button onClick={async () => {
-                        if (confirm("Diesen Stand als neue Version wiederherstellen?"))
+                        if (await confirmDialog({ title: "Diesen Stand wiederherstellen?", message: "Er wird als neue Version gespeichert, der aktuelle Stand bleibt im Verlauf.", ok: "Wiederherstellen" }))
                           onRestored(await api(`/api/nodes/${node.id}/history/${v.id}/restore`, { method: "POST" }));
                       }}>Wiederherstellen</button>
                     )}
@@ -295,7 +305,7 @@ function History({ node, onRestored }: { node: NodeDetail; onRestored: (n: NodeD
                     <a className="button" href={`${v.url}?download=1`}>Herunterladen</a>
                     {i > 0 && node.permissions.write && (
                       <button onClick={async () => {
-                        if (confirm("Diese Fassung als neue Version wiederherstellen?"))
+                        if (await confirmDialog({ title: "Diese Fassung wiederherstellen?", message: "Sie wird als neue Version gespeichert, die aktuelle bleibt im Verlauf.", ok: "Wiederherstellen" }))
                           onRestored(await api(`/api/files/${node.id}/versions/${v.id}/restore`, { method: "POST" }));
                       }}>Wiederherstellen</button>
                     )}
@@ -322,6 +332,7 @@ function History({ node, onRestored }: { node: NodeDetail; onRestored: (n: NodeD
 
 function Meta({ node, onSaved }: { node: NodeDetail; onSaved: (n: NodeDetail) => void }) {
   const [editing, setEditing] = useState(false);
+  useDirty(editing);
   const [title, setTitle] = useState(node.title);
   const [description, setDescription] = useState(node.description);
   const [tags, setTags] = useState(node.tags.join(", "));
@@ -331,7 +342,7 @@ function Meta({ node, onSaved }: { node: NodeDetail; onSaved: (n: NodeDetail) =>
       onSaved(await api(`/api/nodes/${node.id}`, { method: "PATCH", body }));
       return true;
     } catch (e) {
-      alert(e instanceof ApiError ? e.message : "Speichern fehlgeschlagen.");
+      notify(e instanceof ApiError ? e.message : "Speichern fehlgeschlagen.");
       return false;
     }
   }
@@ -374,6 +385,7 @@ function Meta({ node, onSaved }: { node: NodeDetail; onSaved: (n: NodeDetail) =>
       )}
       {!editing && node.permissions.write && <button onClick={() => setEditing(true)}>Eigenschaften bearbeiten</button>}
       {!editing && <MapLinks id={node.id} />}
+      {!editing && <Rights node={node} onSaved={onSaved} />}
     </aside>
   );
 }

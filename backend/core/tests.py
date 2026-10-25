@@ -1,5 +1,5 @@
 import pytest
-from django.contrib.auth.models import User
+from django.contrib.auth.models import Group, User
 from rest_framework.test import APIClient
 
 from .models import Node
@@ -7,7 +7,9 @@ from .models import Node
 
 @pytest.fixture
 def user(db):
-    return User.objects.create_user("tester", password="x-test-pass-1")
+    u = User.objects.create_user("tester", password="x-test-pass-1")
+    u.groups.add(Group.objects.get(name="IT-Team"))  # existing accounts were migrated into IT-Team
+    return u
 
 
 @pytest.fixture
@@ -28,7 +30,7 @@ def test_anonymous_sees_nothing(client, db):
     area = create(client, "area", "IT")
     page = create(client, "page", "Seite", area)
     anon = APIClient()
-    assert anon.get("/api/tree").json() == []
+    assert [n["title"] for n in anon.get("/api/tree").json()] == ["FAQ für Anwender"]  # only the public area
     assert anon.get(f"/api/nodes/{page}").status_code == 404
     assert anon.get(f"/api/nodes/{page}/history").status_code == 404
     assert anon.put(f"/api/pages/{page}/content", {"html": "x", "base_version": 1}, format="json").status_code == 404
@@ -38,7 +40,7 @@ def test_tree_and_breadcrumb(client):
     area = create(client, "area", "IT")
     folder = create(client, "folder", "Server", area)
     page = create(client, "page", "Proxmox", folder)
-    assert [n["title"] for n in client.get("/api/tree").json()] == ["IT"]
+    assert [n["title"] for n in client.get("/api/tree").json()] == ["FAQ für Anwender", "IT"]  # FAQ from migration 0005
     assert client.get(f"/api/tree?parent={area}").json()[0]["has_children"] is True
     crumbs = client.get(f"/api/nodes/{page}").json()["breadcrumb"]
     assert [c["title"] for c in crumbs] == ["IT", "Server"]
@@ -474,3 +476,159 @@ def test_export_pdf_via_onlyoffice(client, monkeypatch, settings):
     assert calls[0]["filetype"] == "html" and calls[0]["outputtype"] == "pdf" and calls[1] == "http://onlyoffice/cache/files/x/out.pdf"
     assert not list((settings.MEDIA_ROOT / export.TMP_DIR).iterdir())  # temporary HTML removed
     assert client.get("/internal/export-html/forged").status_code == 404
+
+
+# --- Rechte, Gruppen, öffentlicher Bereich, Audit-Log ----------------------------------------------------------
+
+def _member(name, group=None):
+    u = User.objects.create_user(name, password="x-test-pass-1")
+    if group:
+        u.groups.add(Group.objects.get(name=group))
+    c = APIClient()
+    c.force_login(u)
+    return u, c
+
+
+def _grant(client, node, group, **flags):
+    rows = [{"group": Group.objects.get(name=group).id, **flags}]
+    r = client.put(f"/api/nodes/{node}/permissions", {"rows": rows}, format="json")
+    assert r.status_code == 200, r.content
+
+
+@pytest.fixture
+def admin(db):
+    u = User.objects.create_superuser("chef", password="x-test-pass-1")
+    c = APIClient()
+    c.force_login(u)
+    return c
+
+
+def test_migration_groups_and_public_faq(db):
+    from .models import NodePermission
+    flags = {p.group.name: (p.can_read, p.can_write, p.can_publish, p.can_manage)
+             for p in NodePermission.objects.filter(node=None).select_related("group")}
+    assert flags == {"Admin": (True, True, True, True), "IT-Team": (True, True, True, False),
+                     "Leser": (True, False, False, False)}
+    faq = Node.objects.get(parent=None, title="FAQ für Anwender")
+    assert faq.is_public and faq.children.get().status == "published"
+
+
+def test_inheritance_is_union_over_ancestors(admin, db):
+    Group.objects.create(name="Technik")
+    area = create(admin, "area", "IT")
+    folder = create(admin, "folder", "Server", area)
+    page = create(admin, "page", "Proxmox", folder)
+    other = create(admin, "page", "Andere", create(admin, "area", "Personal"))
+    _, c = _member("tom", "Technik")
+    assert c.get(f"/api/nodes/{page}").status_code == 404  # no rights at all: invisible
+    _grant(admin, area, "Technik", can_read=True)
+    _grant(admin, folder, "Technik", can_read=True, can_write=True)
+    assert c.get(f"/api/nodes/{page}").json()["permissions"] == {"read": True, "write": True, "publish": False, "manage": False}
+    assert c.get(f"/api/nodes/{area}").json()["permissions"]["write"] is False
+    assert c.patch(f"/api/nodes/{area}", {"title": "x"}, format="json").status_code == 403  # readable, not writable
+    assert c.get(f"/api/nodes/{other}").status_code == 404
+    assert [n["title"] for n in c.get("/api/tree").json()] == ["IT"]
+    # Writer without publish right: new pages start as drafts and cannot be published by them.
+    new = c.post("/api/nodes", {"kind": "page", "title": "Neu", "parent": folder}, format="json").json()
+    assert new["status"] == "draft"
+    assert c.patch(f"/api/nodes/{new['id']}", {"status": "published"}, format="json").status_code == 403
+    assert c.get(f"/api/nodes/{folder}/permissions").status_code == 403  # no manage right
+    inherited = {g["name"]: g for g in admin.get(f"/api/nodes/{folder}/permissions").json()["groups"]}
+    assert inherited["Technik"]["inherited"]["can_read"] and inherited["Technik"]["own"]["can_write"]
+    assert inherited["IT-Team"]["inherited"] == {"can_read": True, "can_write": True, "can_publish": True, "can_manage": False}
+
+
+def test_group_roles(admin, db):
+    area = create(admin, "area", "IT")
+    page = create(admin, "page", "Proxmox", area)
+    draft = create(admin, "page", "Entwurf", area)
+    admin.patch(f"/api/nodes/{draft}", {"status": "draft"}, format="json")
+    _, reader = _member("lisa", "Leser")
+    assert reader.get(f"/api/nodes/{page}").status_code == 200
+    assert reader.get(f"/api/nodes/{draft}").status_code == 404  # drafts only for writers
+    assert reader.put(f"/api/pages/{page}/content", {"html": "x", "base_version": 1}, format="json").status_code == 403
+    assert reader.post("/api/nodes", {"kind": "area", "title": "x"}, format="json").status_code == 404
+    assert reader.get("/api/services").status_code == 200 and reader.get("/api/board").status_code == 200
+    _, it = _member("ina", "IT-Team")
+    assert it.post("/api/nodes", {"kind": "area", "title": "Neu"}, format="json").status_code == 201
+    assert it.get(f"/api/nodes/{draft}").status_code == 200
+    assert it.patch(f"/api/nodes/{draft}", {"status": "published"}, format="json").status_code == 200
+    assert it.get(f"/api/nodes/{area}/permissions").status_code == 403
+    assert it.patch(f"/api/nodes/{area}", {"is_public": True}, format="json").status_code == 403
+    _, nobody = _member("nemo")
+    assert nobody.get("/api/tree").json() == [] and nobody.get("/api/services").status_code == 404
+
+
+def test_anonymous_sees_only_published_public_content(admin, db):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    faq = str(Node.objects.get(title="FAQ für Anwender").id)
+    pub = create(admin, "page", "Drucker einrichten", faq)
+    admin.put(f"/api/pages/{pub}/content", {"html": "<p>Druckertreiber Anleitung</p>", "base_version": 1}, format="json")
+    draft = create(admin, "page", "Druckertreiber Entwurf", faq)
+    admin.patch(f"/api/nodes/{draft}", {"status": "draft"}, format="json")
+    secret = create(admin, "page", "Druckertreiber intern", create(admin, "area", "IT"))
+    up = admin.post("/api/files", {"parent": faq, "file": SimpleUploadedFile("faq.txt", b"Druckertreiber")}, format="multipart")
+    private = admin.post("/api/files", {"parent": Node.objects.get(title="IT").id,
+                                        "file": SimpleUploadedFile("geheim.txt", b"Druckertreiber")}, format="multipart")
+    anon = APIClient()
+    assert [n["title"] for n in anon.get("/api/tree").json()] == ["FAQ für Anwender"]
+    assert anon.get(f"/api/nodes/{pub}").status_code == 200
+    assert anon.get(f"/api/nodes/{pub}").json()["permissions"] == {"read": True, "write": False, "publish": False, "manage": False}
+    for node in (draft, secret):
+        assert anon.get(f"/api/nodes/{node}").status_code == 404
+        assert anon.get(f"/api/nodes/{node}/history").status_code == 404
+    assert anon.put(f"/api/pages/{pub}/content", {"html": "x", "base_version": 2}, format="json").status_code == 403
+    assert anon.post("/api/nodes", {"kind": "page", "title": "x", "parent": faq}, format="json").status_code == 403
+    assert sorted(h["title"] for h in anon.get("/api/search", {"q": "druckertreiber"}).json()) == ["Drucker einrichten", "faq.txt"]
+    assert anon.get(up.json()["versions"][0]["url"]).status_code == 200
+    assert anon.get(private.json()["versions"][0]["url"]).status_code == 404
+    for path in ("/api/services", "/api/board", "/api/pages", f"/api/nodes/{faq}/permissions"):
+        assert anon.get(path).status_code in (403, 404), path
+    # Withdrawing publication or the public flag hides it again.
+    admin.patch(f"/api/nodes/{faq}", {"is_public": False}, format="json")
+    assert anon.get(f"/api/nodes/{pub}").status_code == 404 and anon.get("/api/tree").json() == []
+
+
+def test_audit_log(admin, db, client):
+    from .models import AuditLog
+    area = create(admin, "area", "IT")
+    folder = create(admin, "folder", "A", area)
+    admin.patch(f"/api/nodes/{folder}", {"title": "B"}, format="json")
+    admin.patch(f"/api/nodes/{folder}", {"parent": create(admin, "area", "Ziel")}, format="json")
+    _grant(admin, area, "Leser", can_read=True)
+    admin.delete(f"/api/nodes/{folder}")
+    APIClient().post("/api/auth/login", {"username": "chef", "password": "falsch"}, format="json",
+                     HTTP_X_FORWARDED_FOR="198.51.100.20, 192.0.2.32")
+    APIClient().post("/api/auth/login", {"username": "chef", "password": "x-test-pass-1"}, format="json")
+    log = list(AuditLog.objects.order_by("id").values_list("action", "node_title", "username"))
+    assert [a for a, _, _ in log] == ["create", "create", "update", "create", "move", "permissions", "delete",
+                                      "login_failed", "login"]
+    assert log[2][1] == "B" and log[-1][2] == "chef"
+    failed = AuditLog.objects.get(action="login_failed")
+    assert failed.ip == "198.51.100.20" and failed.user is None and failed.username == "chef"
+    assert AuditLog.objects.get(action="permissions").details["after"] == {
+        "Leser": {"can_read": True, "can_write": False, "can_publish": False, "can_manage": False}}
+
+
+def test_theme_setting_per_user(client, db):
+    assert client.get("/api/auth/me").json()["theme"] == "auto"
+    assert client.put("/api/auth/settings", {"theme": "dark"}, format="json").json()["theme"] == "dark"
+    assert client.get("/api/auth/me").json()["theme"] == "dark"
+    assert client.put("/api/auth/settings", {"theme": "pink"}, format="json").status_code == 400
+    assert APIClient().put("/api/auth/settings", {"theme": "dark"}, format="json").status_code == 403
+
+
+def test_karte_areas(client):
+    # Migration 0007: the seeded test map sits in the area "Heimnetz" now.
+    heim = Node.objects.get(space="karte", kind="area", title="Heimnetz", parent=None)
+    assert Node.objects.get(space="karte", kind="map", title="Testkarte").ancestors()[0] == heim
+    area = client.post("/api/nodes", {"kind": "area", "title": "Büro", "space": "karte"}, format="json").json()
+    assert area["space"] == "karte"
+    folder = create(client, "folder", "Serverraum", area["id"])
+    create(client, "map", "Rack 1", folder)
+    create(client, "map", "Übersicht", area["id"])  # maps directly in an area are fine
+    assert client.post("/api/nodes", {"kind": "area", "title": "x", "parent": folder}, format="json").status_code == 400
+    assert [n["title"] for n in client.get(f"/api/tree?parent={area['id']}").json()] == ["Serverraum", "Übersicht"]
+    assert "Büro" not in [n["title"] for n in client.get("/api/tree").json()]
+    # Only wiki areas can be public.
+    assert client.patch(f"/api/nodes/{area['id']}", {"is_public": True}, format="json").status_code in (400, 403)

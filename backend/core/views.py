@@ -2,7 +2,9 @@ import uuid
 
 import nh3
 from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.models import Group
 from django.db import connection, transaction
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -10,8 +12,9 @@ from rest_framework.decorators import api_view
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.response import Response
 
-from .models import Node, PageRevision
-from .permissions import READ, WRITE, can, effective
+from .models import Node, NodePermission, PageRevision, UserSettings
+from . import audit
+from .permissions import FLAGS, MANAGE, PUBLISH, READ, WRITE, can, effective
 from .search import revision_text
 
 # Tags TipTap produces; everything else is stripped server-side.
@@ -56,6 +59,7 @@ def node_detail(user, n):
         **node_summary(n),
         "parent": n.parent_id, "description": n.description, "tags": n.tags, "version": n.version,
         "is_public": n.is_public,
+        "space": n.space,
         "target": n.target_id if n.target and n.target.deleted_at is None else None,
         "created_by": user_name(n.created_by), "created_at": n.created_at,
         "updated_by": user_name(n.updated_by), "updated_at": n.updated_at,
@@ -94,12 +98,11 @@ def validate_parent(kind, parent, space=Node.WIKI):
         raise ValidationError({"kind": "Dieser Typ ist hier nicht erlaubt."})
     if parent is not None and parent.space != space:
         raise ValidationError({"parent": "Wiki und Karten sind getrennte Bäume."})
-    if space == Node.KARTE:
-        if parent is not None and parent.kind != Node.FOLDER:
-            raise ValidationError({"parent": "Ziel muss ein Ordner sein."})
-    elif kind == Node.AREA:
+    if kind == Node.AREA:
         if parent is not None:
             raise ValidationError({"parent": "Bereiche liegen immer auf oberster Ebene."})
+    elif space == Node.KARTE and parent is None:
+        pass  # maps and folders may still sit at the top of the network tree (drag back to the top level)
     elif parent is None or parent.kind not in Node.CONTAINERS:
         raise ValidationError({"parent": "Ziel muss ein Bereich oder Ordner sein."})
 
@@ -115,13 +118,17 @@ def health(request):
 def auth_login(request):
     user = authenticate(request, username=request.data.get("username"), password=request.data.get("password"))
     if user is None:
+        audit.log(request, "login_failed", username=str(request.data.get("username") or "")[:150])
         return Response({"detail": "Benutzername oder Passwort falsch."}, status=400)
     login(request, user)
+    audit.log(request, "login", user=user)
     return Response(me_data(user))
 
 
 @api_view(["POST"])
 def auth_logout(request):
+    if request.user.is_authenticated:
+        audit.log(request, "logout")
     logout(request)
     return Response(status=204)
 
@@ -130,7 +137,20 @@ def me_data(user):
     if not user.is_authenticated:
         return {"authenticated": False}
     return {"authenticated": True, "username": user.get_username(), "name": user_name(user),
-            "is_superuser": user.is_superuser}
+            "is_superuser": user.is_superuser, "can_create_area": can(user, WRITE),
+            "theme": getattr(getattr(user, "findus_settings", None), "theme", "auto")}
+
+
+@api_view(["PUT"])
+def auth_settings(request):
+    if not request.user.is_authenticated:
+        raise PermissionDenied()
+    theme = request.data.get("theme")
+    if theme not in dict(UserSettings.THEMES):
+        raise ValidationError({"theme": "auto, light oder dark."})
+    UserSettings.objects.update_or_create(user=request.user, defaults={"theme": theme})
+    request.user.refresh_from_db()
+    return Response(me_data(request.user))
 
 
 @ensure_csrf_cookie
@@ -148,7 +168,7 @@ def tree(request):
     else:
         space = request.query_params.get("space") or Node.WIKI
         qs = Node.objects.filter(parent=None, deleted_at=None, space=space)
-    return Response([node_summary(n) for n in qs if can(request.user, READ, n)])
+    return Response([{**node_summary(n), "writable": can(request.user, WRITE, n)} for n in qs if can(request.user, READ, n)])
 
 
 @api_view(["POST"])
@@ -173,9 +193,12 @@ def node_create(request):
         raise ValidationError({"space": "wiki oder karte"})
     validate_parent(kind, parent, space)
     last = Node.objects.filter(parent=parent, space=space, deleted_at=None).order_by("-position").first()
+    # Without the publish right new content starts as a draft, so only writers see it until someone publishes it.
+    status = Node.PUBLISHED if kind in Node.CONTAINERS or can(request.user, PUBLISH, parent) else Node.DRAFT
     node = Node.objects.create(parent=parent, kind=kind, space=space, title=title[:255], target=target,
-                               position=(last.position + 1) if last else 0,
+                               position=(last.position + 1) if last else 0, status=status,
                                created_by=request.user, updated_by=request.user)
+    audit.log(request, "create", node, kind=kind)
     return Response(node_detail(request.user, node), status=201)
 
 
@@ -193,9 +216,11 @@ def node_view(request, node_id):
                 n = todo.pop()
                 todo.extend(n.children.filter(deleted_at=None))
                 Node.objects.filter(pk=n.pk).update(deleted_at=now, updated_by=request.user)
+        audit.log(request, "delete", node)
         return Response(status=204)
 
     data = request.data
+    before = {"title": node.title, "status": node.status, "parent": str(node.parent_id or ""), "is_public": node.is_public}
     for field in ("title", "description"):
         if field in data:
             setattr(node, field, str(data[field]).strip()[:255] if field == "title" else str(data[field]))
@@ -206,17 +231,34 @@ def node_view(request, node_id):
     if "status" in data:
         if data["status"] not in (Node.DRAFT, Node.PUBLISHED):
             raise ValidationError({"status": "draft oder published"})
+        if data["status"] != node.status and not can(request.user, PUBLISH, node):
+            raise PermissionDenied("Veröffentlichen erfordert das Recht „Veröffentlichen“.")
         node.status = data["status"]
+    if "is_public" in data and bool(data["is_public"]) != node.is_public:
+        if node.kind != Node.AREA or node.space != Node.WIKI:
+            raise ValidationError({"is_public": "Nur Bereiche im Wiki können öffentlich sein."})
+        if not can(request.user, MANAGE, node):
+            raise PermissionDenied()
+        node.is_public = bool(data["is_public"])
     if "parent" in data and str(data["parent"] or "") != str(node.parent_id or ""):
         target = node_or_404(request.user, data["parent"], WRITE) if data["parent"] else None
         validate_parent(node.kind, target, node.space)
         if target and (target.pk == node.pk or node in target.ancestors()):
             raise ValidationError({"parent": "Ein Ordner kann nicht in sich selbst verschoben werden."})
         node.parent = target
+        node.__dict__.pop("_findus_chain", None)  # rights are inherited from the new place from now on
     if "position" in data:
         node.position = int(data["position"])
     node.updated_by = request.user
     node.save()
+    after = {"title": node.title, "status": node.status, "parent": str(node.parent_id or ""), "is_public": node.is_public}
+    changed = {k: [before[k], after[k]] for k in before if before[k] != after[k]}
+    if "parent" in changed:
+        audit.log(request, "move", node, **changed)
+    elif "status" in changed:
+        audit.log(request, "publish", node, **changed)
+    elif changed or any(f in data for f in ("description", "tags")):
+        audit.log(request, "update", node, **changed)
     return Response(node_detail(request.user, node))
 
 
@@ -240,6 +282,7 @@ def page_content(request, node_id):
         node.version += 1
         node.updated_by = request.user
         node.save()
+    audit.log(request, "update", node, version=node.version)
     return Response(node_detail(request.user, node))
 
 
@@ -274,4 +317,45 @@ def history_restore(request, node_id, rev_id):
         node.version += 1
         node.updated_by = request.user
         node.save()
+    audit.log(request, "restore", node, revision=rev_id)
     return Response(node_detail(request.user, node))
+
+
+def _flags(p):
+    return {f: getattr(p, f) for f in FLAGS.values()}
+
+
+@api_view(["GET", "PUT"])
+def node_permissions(request, node_id):
+    """Group rights set directly on a node (PUT replaces them) plus what each group inherits from above."""
+    node = node_or_404(request.user, node_id, MANAGE)
+    groups = list(Group.objects.order_by("name"))
+    if request.method == "PUT":
+        rows = request.data.get("rows")
+        if not isinstance(rows, list):
+            raise ValidationError({"rows": "Liste erwartet."})
+        by_id = {g.id: g for g in groups}
+        new = {}
+        for r in rows:
+            gid = r.get("group") if isinstance(r, dict) else None
+            if gid not in by_id:
+                raise ValidationError({"rows": f"Unbekannte Gruppe {gid!r}."})
+            flags = {f: bool(r.get(f)) for f in FLAGS.values()}
+            if any(flags.values()):
+                new[gid] = flags
+        with transaction.atomic():
+            old = {p.group.name: _flags(p) for p in node.permissions.select_related("group")}
+            node.permissions.all().delete()
+            NodePermission.objects.bulk_create(NodePermission(node=node, group_id=g, **f) for g, f in new.items())
+        audit.log(request, "permissions", node, before=old, after={by_id[g].name: f for g, f in new.items()})
+        request.user.__dict__.pop("_findus_grants", None)
+    chain = [a.pk for a in node.ancestors()]
+    own = {p.group_id: _flags(p) for p in node.permissions.all()}
+    inherited = {}
+    for p in NodePermission.objects.filter(Q(node=None) | Q(node_id__in=chain)):
+        acc = inherited.setdefault(p.group_id, dict.fromkeys(FLAGS.values(), False))
+        for f, on in _flags(p).items():
+            acc[f] = acc[f] or on
+    return Response({"groups": [{"id": g.id, "name": g.name, "own": own.get(g.id),
+                                 "inherited": inherited.get(g.id, dict.fromkeys(FLAGS.values(), False))}
+                                for g in groups]})

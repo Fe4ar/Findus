@@ -12,6 +12,7 @@ from rest_framework.decorators import api_view
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 
+from .permissions import READ, can
 
 # services.json is instance data (not in git); without it the dashboard shows the example list.
 SERVICES_FILE = settings.BASE_DIR / "services.json"
@@ -61,7 +62,7 @@ def check_all(urls):
 
 @api_view(["GET"])
 def services(request):
-    if not request.user.is_authenticated:
+    if not can(request.user, READ):
         raise NotFound()
     items = json.loads(SERVICES_FILE.read_text(encoding="utf-8"))
     status = check_all([s["url"] for s in items])

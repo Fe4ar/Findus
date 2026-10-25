@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, Kind, NodeSummary } from "./api";
+import { wantsNewTab } from "./Tabs";
+import { ask, confirmDialog, notify } from "./Dialog";
 
 const ICONS: Record<Kind, string> = { area: "▣", folder: "📁", page: "📄", file: "📎", map: "🗺️", link: "📐" };
 const isContainer = (k: Kind) => k === "area" || k === "folder";
@@ -10,10 +12,10 @@ interface Menu {
   node: NodeSummary | null; // null = empty space (new area, or folder/map in the map tree)
 }
 
-// Separate trees: the wiki (areas at the top) and the maps of the Karte tab (folders and maps, any level).
+// Separate trees: the wiki and the network tab, both with areas at the top (network: maps and folders may also sit there).
 export type Space = "wiki" | "karte";
 const CHILD_KINDS: Record<Space, Kind[]> = { wiki: ["folder", "page"], karte: ["folder", "map", "link"] };
-const ROOT_KINDS: Record<Space, Kind[]> = { wiki: ["area"], karte: ["folder", "map"] };
+const ROOT_KINDS: Record<Space, Kind[]> = { wiki: ["area"], karte: ["area"] };
 const NEW_LABEL: Record<Kind, string> = {
   area: "Neuer Bereich", folder: "Neuer Ordner", page: "Neue Seite", file: "", map: "Neue Karte", link: "Netzplan verknüpfen",
 };
@@ -24,9 +26,11 @@ interface TreeProps {
   version: number;
   onChanged: () => void;
   space?: Space;
+  canCreateRoot?: boolean;
+  onOpenTab?: (id: string) => void; // Ctrl/middle click and "In neuem Tab öffnen"
 }
 
-export function Tree({ selected, onSelect, version, onChanged, space = "wiki" }: TreeProps) {
+export function Tree({ selected, onSelect, version, onChanged, space = "wiki", canCreateRoot = true, onOpenTab }: TreeProps) {
   const [menu, setMenu] = useState<Menu | null>(null);
 
   useEffect(() => {
@@ -44,13 +48,13 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki" }:
       await fn();
       onChanged();
     } catch (e) {
-      alert(e instanceof ApiError ? e.message : "Aktion fehlgeschlagen.");
+      notify(e instanceof ApiError ? e.message : "Aktion fehlgeschlagen.");
     }
   }
 
   async function create(kind: Kind, parent: NodeSummary | null) {
     if (kind === "link") {
-      const ref = prompt("Netzplan verknüpfen: Link oder ID der .drawio-Datei aus dem Wiki:");
+      const ref = await ask({ title: "Netzplan verknüpfen", label: "Link oder ID der .drawio-Datei aus dem Wiki", ok: "Verknüpfen" });
       const target = ref?.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/)?.[0];
       if (!target) return;
       await run(async () => {
@@ -59,12 +63,11 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki" }:
       });
       return;
     }
-    const question = { area: "Name des neuen Bereichs:", folder: "Name des neuen Ordners:", page: "Titel der neuen Seite:", file: "",
-      map: "Name der neuen Karte:" }[kind];
-    const title = prompt(question);
+    const question = { area: "Neuer Bereich", folder: "Neuer Ordner", page: "Neue Seite", file: "", map: "Neue Karte" }[kind];
+    const title = await ask({ title: question, label: kind === "page" ? "Titel" : "Name", ok: "Anlegen", validate: (v) => (v.trim() ? null : "Bitte einen Namen eingeben.") });
     if (!title?.trim()) return;
     await run(async () => {
-      const n = await api<NodeSummary>("/api/nodes", { method: "POST", body: { kind, title, parent: parent?.id, space } });
+      const n = await api<NodeSummary>("/api/nodes", { method: "POST", body: { kind, title: title.trim(), parent: parent?.id, space } });
       onSelect(n.id);
     });
   }
@@ -76,7 +79,7 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki" }:
       className="tree"
       onContextMenu={(e) => {
         e.preventDefault();
-        setMenu({ x: e.clientX, y: e.clientY, node: null });
+        if (canCreateRoot) setMenu({ x: e.clientX, y: e.clientY, node: null });
       }}
       // In the map tree, dropping on empty space moves an item back to the top level.
       onDragOver={(e) => { if (space === "karte" && e.dataTransfer.types.includes("text/x-node")) e.preventDefault(); }}
@@ -89,8 +92,8 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki" }:
       }}
     >
       <Branch parent={null} space={space} depth={0} selected={selected} onSelect={onSelect} version={version}
-        onMenu={setMenu} onMove={move} />
-      {ROOT_KINDS[space].map((k) => (
+        onMenu={setMenu} onMove={move} onOpenTab={onOpenTab} />
+      {canCreateRoot && ROOT_KINDS[space].map((k) => (
         <button key={k} className="tree-add" onClick={() => create(k, null)}>+ {NEW_LABEL[k]}</button>
       ))}
       {m && (
@@ -98,19 +101,20 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki" }:
           {!m.node && ROOT_KINDS[space].map((k) => (
             <MenuItem key={k} label={NEW_LABEL[k]} onClick={() => { setMenu(null); create(k, null); }} />
           ))}
-          {m.node && isContainer(m.node.kind) && CHILD_KINDS[space].map((k) => (
+          {m.node && onOpenTab && <MenuItem label="In neuem Tab öffnen" onClick={() => { setMenu(null); onOpenTab(m.node!.id); }} />}
+          {m.node && m.node.writable !== false && isContainer(m.node.kind) && CHILD_KINDS[space].map((k) => (
             <MenuItem key={k} label={NEW_LABEL[k]} onClick={() => { setMenu(null); create(k, m.node); }} />
           ))}
-          {m.node && (
+          {m.node && m.node.writable !== false && (
             <>
-              <MenuItem label="Umbenennen" onClick={() => {
+              <MenuItem label="Umbenennen" onClick={async () => {
                 setMenu(null);
-                const title = prompt("Neuer Name:", m.node!.title);
+                const title = await ask({ title: "Umbenennen", label: "Neuer Name", initial: m.node!.title, ok: "Umbenennen", validate: (v) => (v.trim() ? null : "Bitte einen Namen eingeben.") });
                 if (title?.trim()) run(() => api(`/api/nodes/${m.node!.id}`, { method: "PATCH", body: { title } }));
               }} />
-              <MenuItem label="Löschen" danger onClick={() => {
+              <MenuItem label="Löschen" danger onClick={async () => {
                 setMenu(null);
-                if (confirm(`„${m.node!.title}“ mit allem Inhalt löschen?`))
+                if (await confirmDialog({ title: `„${m.node!.title}“ löschen?`, message: "Alles darunter wird mitgelöscht.", ok: "Löschen", danger: true }))
                   run(async () => {
                     await api(`/api/nodes/${m.node!.id}`, { method: "DELETE" });
                     if (selected === m.node!.id) onSelect(null);
@@ -141,6 +145,7 @@ interface BranchProps {
   version: number;
   onMenu: (m: Menu) => void;
   onMove: (id: string, target: string | null) => void;
+  onOpenTab?: (id: string) => void;
 }
 
 function Branch({ parent, space = "wiki", ...rest }: BranchProps) {
@@ -156,7 +161,7 @@ function Branch({ parent, space = "wiki", ...rest }: BranchProps) {
   );
 }
 
-function Item({ node, depth, selected, onSelect, version, onMenu, onMove }: { node: NodeSummary } & Omit<BranchProps, "parent" | "space">) {
+function Item({ node, depth, selected, onSelect, version, onMenu, onMove, onOpenTab }: { node: NodeSummary } & Omit<BranchProps, "parent" | "space">) {
   const [open, setOpen] = useState(() => sessionStorage.getItem(`open:${node.id}`) === "1");
   const [dropTarget, setDropTarget] = useState(false);
   const container = isContainer(node.kind);
@@ -198,7 +203,7 @@ function Item({ node, depth, selected, onSelect, version, onMenu, onMove }: { no
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          onMenu({ x: e.clientX, y: e.clientY, node });
+          if (node.writable !== false || onOpenTab) onMenu({ x: e.clientX, y: e.clientY, node });
         }}
       >
         <button className="twisty" aria-label={open ? "Zuklappen" : "Aufklappen"} tabIndex={-1}
@@ -206,14 +211,21 @@ function Item({ node, depth, selected, onSelect, version, onMenu, onMove }: { no
           onClick={() => toggle(!open)}>
           {open ? "▾" : "▸"}
         </button>
-        <button className="label" onClick={() => { onSelect(node.id); if (container) toggle(true); }}>
+        <button className="label"
+          onClick={(e) => {
+            if (onOpenTab && wantsNewTab(e)) return onOpenTab(node.id);
+            onSelect(node.id);
+            if (container) toggle(true);
+          }}
+          onMouseDown={(e) => { if (e.button === 1 && onOpenTab) e.preventDefault(); }} // no autoscroll on middle click
+          onAuxClick={(e) => { if (e.button === 1 && onOpenTab) onOpenTab(node.id); }}>
           <span aria-hidden>{ICONS[node.kind]}</span> {node.title}
           {node.status === "draft" && <span className="badge">Entwurf</span>}
         </button>
       </div>
       {container && open && (
         <Branch parent={node.id} depth={depth + 1} selected={selected} onSelect={onSelect} version={version}
-          onMenu={onMenu} onMove={onMove} />
+          onMenu={onMenu} onMove={onMove} onOpenTab={onOpenTab} />
       )}
     </li>
   );

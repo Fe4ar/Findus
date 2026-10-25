@@ -280,7 +280,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 /* ---------- Editor ---------- */
 .editor { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); }
 .toolbar { display: flex; flex-wrap: wrap; gap: 0.2rem; padding: var(--space-2); border-bottom: 1px solid var(--border); background: var(--surface-2); position: sticky; top: 0; z-index: 1; border-radius: var(--radius) var(--radius) 0 0; }
-.toolbar button { padding: 0.2rem 0.55rem; font-size: 0.85rem; border-color: transparent; background: none; box-shadow: none; }
+.toolbar button { display: inline-grid; place-items: center; min-width: 2rem; height: 2rem; padding: 0 0.35rem; font-size: 0.85rem; color: var(--fg); border-color: transparent; background: none; box-shadow: none; }
+.toolbar button.active { color: var(--accent); }
+.icon { display: block; flex: none; }
 .toolbar button:hover { background: var(--surface); border-color: var(--border); }
 .toolbar button.active { background: var(--select); border-color: var(--accent); }
 .toolbar .sep { width: 1px; background: var(--border-strong); margin: 0.2rem 0.3rem; }
@@ -462,3 +464,156 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .prose.editing div[data-drawio]::before { content: "📐 draw.io-Schaubild " attr(data-drawio); color: var(--muted); }
 
 .export-links { font-size: 0.9rem; color: var(--muted); }
+
+/* Group rights box in the meta panel (Rights.tsx) */
+.rights { margin-top: var(--space-4); border-top: 1px solid var(--border); padding-top: var(--space-3); }
+.rights h3 { margin: 0 0 var(--space-2); font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.rights table { border-collapse: collapse; width: 100%; font-size: 0.85rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.rights th, .rights td { padding: var(--space-1) var(--space-2); text-align: center; border-bottom: 1px solid var(--border); }
+.rights th { background: var(--surface-2); color: var(--muted); font-weight: 600; font-size: 0.75rem; }
+.rights tr:last-child td { border-bottom: 0; }
+.rights th:first-child, .rights td:first-child { text-align: left; white-space: nowrap; }
+.rights abbr { text-decoration: none; }
+.rights p { font-size: 0.8rem; margin: var(--space-2) 0 0; }
+.rights input { accent-color: var(--accent); }
+.rights input:disabled { opacity: 0.5; }
+.meta .rights-public { display: flex; gap: var(--space-2); align-items: flex-start; margin-bottom: var(--space-2); font-size: 0.85rem; }
+.meta .rights-public input { width: auto; flex: none; margin-top: 0.2rem; }
+
+/* Theme switch in the top bar (☀️ / 🌙 / 🖥️), saved per account. */
+.theme-switch { display: inline-flex; gap: 0.1rem; padding: 0.15rem; background: var(--surface-2); border-radius: var(--radius); }
+.topbar .theme-switch button { border: 0; background: none; box-shadow: none; padding: 0.15rem 0.45rem; font-size: 1rem; line-height: 1.4; border-radius: var(--radius-sm); filter: grayscale(1); opacity: 0.6; }
+.topbar .theme-switch button:hover { opacity: 1; filter: none; background: none; }
+.topbar .theme-switch button[aria-checked="true"] { background: var(--surface); box-shadow: var(--shadow-sm); filter: none; opacity: 1; }
+
+/* In-app tabs: a bar under the top bar; every open tab stays mounted, only the active (and split) one is shown. */
+.layout.with-tabs { grid-template-rows: auto auto 1fr; }
+.tabbar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.doctab {
+  display: flex;
+  align-items: center;
+  max-width: 14rem;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: var(--surface-2, var(--bg-soft));
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.doctab.active { background: var(--surface); color: var(--fg); box-shadow: inset 0 2px 0 var(--accent); }
+.doctab.split { background: var(--surface); color: var(--fg); box-shadow: inset 0 2px 0 var(--border-strong); }
+.doctab.drop { outline: 2px dashed var(--accent); }
+.doctab button { border: 0; background: none; color: inherit; padding: var(--space-1) var(--space-2); border-radius: 0; box-shadow: none; }
+.doctab-label { display: flex; align-items: center; gap: var(--space-1); min-width: 0; }
+.doctab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doctab-dirty { color: var(--accent); font-size: 0.7rem; }
+.doctab-close { opacity: 0.6; padding-left: 0 !important; }
+.doctab-close:hover { opacity: 1; color: var(--danger); }
+.tab-new { border: 0; background: none; color: var(--muted); padding: 0 var(--space-2); font-size: 1.1rem; }
+.tab-new:hover { color: var(--accent); }
+.content > .tab-pane[hidden] { display: none; }
+.content.split { display: grid; grid-template-columns: 1fr 1fr; padding: 0; overflow: hidden; }
+.content.split > .tab-pane { overflow: auto; padding: var(--space-5) var(--space-6); min-width: 0; }
+.content.split > .tab-pane + .tab-pane:not([hidden]) { border-left: 1px solid var(--border); }
+@media (max-width: 760px) {
+  .layout.with-tabs { grid-template-rows: auto auto auto 1fr; }
+  .layout.with-tabs.full { grid-template-rows: auto auto 1fr; }
+  .content.split { grid-template-columns: 1fr; overflow: auto; }
+}
+/* ---------- Modals and toasts (Dialog.tsx) ---------- */
+dialog.modal { margin: auto; border: 1px solid var(--border); color: var(--fg); width: min(32rem, calc(100vw - 2rem)); padding: var(--space-5); }
+dialog.modal::backdrop { background: rgb(20 14 8 / 0.45); backdrop-filter: blur(2px); }
+dialog.modal[open] { animation: modal-in 0.14s ease-out; }
+@keyframes modal-in { from { opacity: 0; transform: translateY(6px) scale(0.98); } }
+.modal-field { display: grid; gap: var(--space-2); margin: var(--space-3) 0 var(--space-4); color: var(--muted); font-size: 0.9rem; }
+.modal-field input { width: 100%; font-size: 1rem; color: var(--fg); }
+.modal-field input:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus); }
+.modal-error { color: var(--danger); margin: calc(-1 * var(--space-2)) 0 var(--space-3); font-size: 0.9rem; }
+dialog.modal .actions { justify-content: flex-end; }
+button.danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+.menu button.danger { background: none; color: var(--danger); border-color: transparent; }
+.toasts { position: fixed; right: var(--space-4); bottom: var(--space-4); display: grid; gap: var(--space-2); z-index: 30; max-width: min(24rem, calc(100vw - 2rem)); }
+.toast { background: var(--surface); color: var(--fg); border: 1px solid var(--border); border-left: 4px solid var(--ok); border-radius: var(--radius); padding: var(--space-3) var(--space-4); box-shadow: var(--shadow-lg); }
+.toast.error { border-left-color: var(--danger); }
+@media (prefers-reduced-motion: reduce) { dialog.modal[open] { animation: none; } }
+
+/* ---------- Profile menu (ProfileMenu.tsx) ---------- */
+.topbar > .theme-switch .label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.profile { position: relative; }
+.avatar { display: inline-grid; place-items: center; width: 2.1rem; height: 2.1rem; padding: 0; border-radius: 50%;
+  background: var(--accent); color: var(--surface); border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--border);
+  font-weight: 600; font-size: 0.8rem; letter-spacing: 0.02em; cursor: pointer; }
+.topbar .avatar { padding: 0; font-size: 0.8rem; }
+.topbar .avatar:hover, .avatar[aria-expanded="true"] { background: var(--accent-hover); border-color: var(--surface); box-shadow: 0 0 0 2px var(--accent-soft); }
+.avatar.large { width: 2.6rem; height: 2.6rem; font-size: 0.95rem; cursor: default; flex: none; }
+.profile-menu { position: absolute; right: 0; top: calc(100% + var(--space-2)); z-index: 15; min-width: 16rem;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);
+  padding: var(--space-2); display: grid; gap: 0.1rem; }
+.profile-head { display: flex; gap: var(--space-3); align-items: center; padding: var(--space-2) var(--space-2) var(--space-3); }
+.profile-head span:last-child { display: grid; min-width: 0; }
+.profile-head small { color: var(--muted); }
+.profile-section { padding: var(--space-1) var(--space-2); color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
+.profile-menu .theme-switch { margin: 0 var(--space-2) var(--space-2); display: flex; }
+.profile-menu .theme-switch button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem;
+  white-space: nowrap; font-size: 0.82rem; padding: 0.3rem 0.4rem; }
+.profile-menu hr { border: 0; border-top: 1px solid var(--border); margin: var(--space-1) 0; width: 100%; }
+.profile-menu > [role="menuitem"] { display: block; width: 100%; text-align: left; padding: 0.45rem var(--space-2); border: 0;
+  background: none; box-shadow: none; border-radius: var(--radius-sm); color: var(--fg); font-size: 0.92rem; text-decoration: none; }
+.profile-menu > [role="menuitem"]:hover, .profile-menu [role^="menuitem"]:focus-visible { background: var(--select); outline: none; }
+.settings { display: grid; grid-template-columns: auto 1fr; gap: var(--space-3) var(--space-4); align-items: center; }
+.settings dt { color: var(--muted); font-size: 0.9rem; }
+.settings dd { margin: 0; display: grid; gap: var(--space-2); justify-items: start; }
+.settings .theme-switch button { border: 0; background: none; box-shadow: none; padding: 0.3rem 0.6rem; border-radius: var(--radius-sm); }
+.settings .theme-switch button[aria-checked="true"] { background: var(--surface); box-shadow: var(--shadow-sm); }
+@media (max-width: 760px) {
+  .profile { margin-left: auto; }
+  .profile-menu { position: fixed; top: auto; left: var(--space-2); right: var(--space-2); margin-top: var(--space-2); }
+}
+
+/* Map editor v0.4: rack types, snap hint, palette, detail panel, search, zoom */
+.karte-front { fill: none; stroke: var(--muted); stroke-width: 1; pointer-events: none; }
+.karte-led { fill: var(--ok); stroke: none; }
+.karte-slot-hint { fill: color-mix(in srgb, var(--ok) 30%, transparent); stroke: var(--ok); stroke-width: 2; pointer-events: none; }
+.karte-slot-hint.taken { fill: color-mix(in srgb, var(--danger) 30%, transparent); stroke: var(--danger); }
+.karte-ghost { opacity: 0.75; }
+.karte-match > rect:first-of-type { stroke: var(--accent); stroke-width: 3; stroke-dasharray: 5 3; }
+.karte-sep { width: 1px; align-self: stretch; background: var(--border); }
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 2rem; padding: 0.25rem 0.4rem; }
+.icon-btn:disabled { opacity: 0.4; cursor: default; }
+.karte-palette { display: flex; flex-wrap: wrap; gap: var(--space-1); margin: 0 0 var(--space-2); }
+.karte-palette button { font-size: 0.82rem; padding: 0.2rem 0.5rem; cursor: grab; display: inline-flex; gap: 0.25rem; }
+.karte-view { margin: 0 0 var(--space-2); align-items: center; }
+.karte-search { min-width: 16rem; flex: 0 1 22rem; }
+.karte-facts { display: grid; gap: var(--space-2); margin: 0; font-size: 0.9rem; }
+.karte-facts div { display: grid; grid-template-columns: 7rem 1fr; gap: var(--space-2); }
+.karte-facts dt { color: var(--muted); }
+.karte-facts dd { margin: 0; overflow-wrap: anywhere; }
+.karte-facts ul { margin: 0; padding-left: 1rem; }
+.karte-notes { white-space: pre-wrap; }
+.karte-invalid { color: var(--danger); }
+.karte-field input[aria-invalid] { border-color: var(--danger); }
+dialog.karte-modal { width: min(40rem, calc(100vw - 2rem)); max-height: calc(100vh - 4rem); overflow: auto; }
+dialog.karte-modal .karte-props { border: 0; box-shadow: none; padding: 0; }
+/* v0.5: cable legend, port grid, rack metrics */
+.karte-legend { list-style: none; display: flex; flex-wrap: wrap; gap: var(--space-3); padding: 0; margin: 0 0 var(--space-2); font-size: 0.85rem; color: var(--muted); }
+.karte-legend span { display: inline-block; width: 1.4rem; height: 4px; border-radius: 2px; margin-right: 0.35rem; vertical-align: middle; }
+.karte-ports h4 { margin: var(--space-3) 0 var(--space-2); font-size: 0.9rem; }
+.karte-port-grid { list-style: none; padding: 0; margin: 0; display: grid; gap: 3px; }
+.karte-port-grid li { height: 1.4rem; display: grid; place-items: center; font-size: 0.7rem; border: 1px solid var(--border-strong); border-radius: 3px; color: var(--muted); }
+.karte-port-grid li.used { background: var(--accent); color: #fff; border-color: transparent; }
+.karte-port-list { margin: var(--space-2) 0 0; padding-left: 1rem; font-size: 0.85rem; }
+.karte-facts meter { width: 100%; }
+.karte-otherside { opacity: 0.2; pointer-events: none; }
+/* Static demo only (src/demo.ts) */
+.demo-banner { padding: var(--space-2) var(--space-4); background: var(--accent-soft); color: var(--fg);
+  border-bottom: 1px solid var(--border); text-align: center; font-size: .9rem; }

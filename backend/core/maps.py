@@ -65,7 +65,7 @@ def from_karte_json(data):
 @api_view(["GET"])
 def page_list(request):
     """All wiki pages with their path, for the manual picker in the map editor."""
-    if not request.user.is_authenticated:
+    if not can(request.user, READ):
         raise NotFound()
     pages = Node.objects.filter(space=Node.WIKI, kind=Node.PAGE, deleted_at=None).select_related("parent")
     out = []

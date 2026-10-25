@@ -21,7 +21,8 @@ from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
 from .models import FileVersion, Node
-from .permissions import READ, WRITE, can
+from . import audit
+from .permissions import PUBLISH, READ, WRITE, can
 from .search import version_text
 from .views import node_detail, node_or_404, user_name
 
@@ -94,8 +95,10 @@ def file_upload(request):
         last = Node.objects.filter(parent=parent, deleted_at=None).order_by("-position").first()
         node = Node.objects.create(parent=parent, kind=Node.FILE, title=name[:255],
                                    position=(last.position + 1) if last else 0,
+                                   status=Node.PUBLISHED if can(request.user, PUBLISH, parent) else Node.DRAFT,
                                    created_by=request.user, updated_by=request.user)
         _save_version(node, f, name, request.user, request.data.get("comment", ""))
+    audit.log(request, "create", node, kind=Node.FILE, file=name)
     return Response(node_detail(request.user, node), status=201)
 
 
@@ -112,6 +115,7 @@ def file_new_version(request, node_id):
     f = _uploaded(request)
     with transaction.atomic():
         _save_version(node, f, os.path.basename(f.name), request.user, request.data.get("comment", ""))
+    audit.log(request, "update", node, file=os.path.basename(f.name))
     return Response(node_detail(request.user, node))
 
 
@@ -122,6 +126,7 @@ def file_restore(request, node_id, version_id):
     with transaction.atomic(), old.file.open("rb") as fh:
         _save_version(node, File(fh, name=old.original_name), old.original_name, request.user,
                       f"Wiederhergestellt: {old.original_name}", FileVersion.RESTORE)
+    audit.log(request, "restore", node, file=old.original_name)
     return Response(node_detail(request.user, node))
 
 
@@ -227,4 +232,5 @@ def oo_callback(request, token):
         with transaction.atomic():
             _save_version(node, ContentFile(content, name=name), name, editor, "Bearbeitet in OnlyOffice",
                           FileVersion.ONLYOFFICE)
+        audit.log(None, "update", node, user=editor, source="onlyoffice")
     return JsonResponse({"error": 0})

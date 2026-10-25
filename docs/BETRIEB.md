@@ -1,4 +1,4 @@
-# Betrieb (Backup, Restore)
+# Betrieb (Backup, Restore, Rechte)
 
 ## Backup und Restore
 - `scripts/backup.sh`: Datenbank (`pg_dump -Fc`), Dateien (Volume `media`) und `.env` nach `~/findus-backups/<Datum_Uhrzeit>/`,
@@ -14,3 +14,20 @@
 - Ernstfall: `scripts/restore.sh <Ordner> --live` überschreibt die Live-Datenbank und -Dateien (fragt nach).
   Ist der Server komplett weg: Repo klonen, `<Ordner>/env` nach `.env` kopieren, `docker compose up -d --build`, dann restore mit `--live`.
 - `.env` enthält Secrets: Backup-Ordner sind nur für den Besitzer lesbar (umask 077).
+
+## Rechte, Gruppen, öffentlicher Bereich
+- Rechte gibt es pro Gruppe auf Bereichen und Ordnern: Lesen, Schreiben, Veröffentlichen, Rechte verwalten.
+  Sie gelten für alles darunter und addieren sich (Vereinigung über alle übergeordneten Ordner und die globalen Rechte).
+  Ein Verbot gibt es nicht, weniger Rechte weiter unten gehen also nicht.
+- Gruppen (Migration 0005, global): **Admin** alles, **IT-Team** Lesen/Schreiben/Veröffentlichen überall (keine Rechteverwaltung),
+  **Leser** nur Lesen. Superuser dürfen immer alles. Benutzer den Gruppen unter /admin/ → Benutzer zuordnen.
+- Rechte setzen: im Wiki einen Bereich/Ordner öffnen, rechts Kasten „Rechte“ (nur mit Recht „Rechte verwalten“).
+  Ausgegraute Häkchen sind geerbt. Notfalls /admin/ → Node permissions (Zeile ohne Node = gilt überall).
+- Entwürfe sehen nur Gruppen mit Schreib- oder Veröffentlichungsrecht. Wer nur schreiben darf, legt neue Seiten/Dateien
+  als Entwurf an und kann sie nicht veröffentlichen.
+- Öffentlich: Bereiche mit „Öffentlich“ (Kasten „Rechte“, nur Bereiche) sind ohne Anmeldung lesbar, aber nur veröffentlichte Inhalte,
+  auch in Suche und Downloads. Angelegt: „FAQ für Anwender“. Ohne Anmeldung zeigt Findus zuerst die Anmeldung
+  mit dem Link „FAQ für Anwender ohne Anmeldung lesen“; Links auf Seiten (/n/<id>) öffnen direkt.
+- Audit-Log: Anlegen, Ändern, Verschieben, Löschen, Veröffentlichen, Wiederherstellen, Rechteänderungen und Anmeldungen
+  (auch fehlgeschlagene) mit Benutzer, Ziel, Details und IP. Ansehen: /admin/ → Audit logs (nur lesbar).
+- Alle Prüfungen laufen über `permissions.can(user, action, node)` (backend/core/permissions.py).

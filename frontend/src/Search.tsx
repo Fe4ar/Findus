@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, Kind } from "./api";
 import { navigate } from "./Karte";
+import { wantsNewTab } from "./Tabs";
 
 interface Hit {
   id: string;
@@ -18,7 +19,7 @@ function Snippet({ text }: { text: string }) {
     part.startsWith("\x02") ? <mark key={i}>{part.slice(1, -1)}</mark> : part)}</>;
 }
 
-export function Search({ onSelect }: { onSelect: (id: string) => void }) {
+export function Search({ onSelect, onOpenTab }: { onSelect: (id: string) => void; onOpenTab?: (path: string) => void }) {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<Hit[] | null>(null);
   const [active, setActive] = useState(0);
@@ -41,10 +42,13 @@ export function Search({ onSelect }: { onSelect: (id: string) => void }) {
     return () => document.removeEventListener("mousedown", close);
   }, []);
 
-  const go = (h: Hit) => {
+  const go = (h: Hit, newTab = false) => {
     setHits(null);
     setQ("");
-    if (h.kind === "map" || h.kind === "link") navigate(`/netzwerk/${h.id}`);
+    // map hits carry the query, so the map selects the matching element
+    const path = h.kind === "map" ? `/netzwerk/${h.id}?q=${encodeURIComponent(q)}` : h.kind === "link" ? `/netzwerk/${h.id}` : `/n/${h.id}`;
+    if (newTab && onOpenTab) onOpenTab(path);
+    else if (h.kind === "map" || h.kind === "link") navigate(path);
     else onSelect(h.id);
   };
 
@@ -60,14 +64,14 @@ export function Search({ onSelect }: { onSelect: (id: string) => void }) {
           if (!hits?.length) return;
           if (e.key === "ArrowDown") { e.preventDefault(); setActive((a) => (a + 1) % hits.length); }
           if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => (a - 1 + hits.length) % hits.length); }
-          if (e.key === "Enter") go(hits[active]);
+          if (e.key === "Enter") go(hits[active], e.ctrlKey || e.metaKey);
         }} />
       {hits && (
         <ul id="search-results" className="search-results" role="listbox" aria-label="Suchergebnisse">
           {hits.length === 0 && <li className="muted">Keine Treffer.</li>}
           {hits.map((h, i) => (
             <li key={h.id} id={`search-hit-${i}`} role="option" aria-selected={i === active}
-              onMouseEnter={() => setActive(i)} onMouseDown={(e) => { e.preventDefault(); go(h); }}>
+              onMouseEnter={() => setActive(i)} onMouseDown={(e) => { e.preventDefault(); go(h, wantsNewTab(e)); }}>
               <strong>{h.title}</strong>
               <span className="muted"> · {KIND_LABEL[h.kind] ?? h.kind}{h.path && ` · ${h.path}`}</span>
               {h.snippet && <div className="snippet"><Snippet text={h.snippet} /></div>}

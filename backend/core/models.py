@@ -17,7 +17,7 @@ class Node(models.Model):
     REVISIONED = (PAGE, MAP)
     # Separate trees: the wiki and the network maps of the "Karte" tab.
     WIKI, KARTE = "wiki", "karte"
-    SPACE_KINDS = {WIKI: (AREA, FOLDER, PAGE, FILE), KARTE: (FOLDER, MAP, LINK)}
+    SPACE_KINDS = {WIKI: (AREA, FOLDER, PAGE, FILE), KARTE: (AREA, FOLDER, MAP, LINK)}
     DRAFT, PUBLISHED = "draft", "published"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -31,7 +31,7 @@ class Node(models.Model):
     tags = ArrayField(models.CharField(max_length=50), default=list, blank=True)
     position = models.IntegerField(default=0)
     status = models.CharField(max_length=10, choices=[(DRAFT, "Entwurf"), (PUBLISHED, "Veröffentlicht")], default=PUBLISHED)
-    # Only meaningful on areas; anonymous read access comes in a later phase.
+    # Only meaningful on areas: anonymous users may read its published content (see permissions.py).
     is_public = models.BooleanField(default=False)
     version = models.IntegerField(default=1)
     created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
@@ -94,3 +94,49 @@ class FileVersion(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+
+
+class NodePermission(models.Model):
+    """Rights of a group on a node and everything below it; node=None grants them everywhere."""
+    node = models.ForeignKey(Node, null=True, blank=True, on_delete=models.CASCADE, related_name="permissions")
+    group = models.ForeignKey("auth.Group", on_delete=models.CASCADE, related_name="node_permissions")
+    can_read = models.BooleanField(default=True)
+    can_write = models.BooleanField(default=False)
+    can_publish = models.BooleanField(default=False)
+    can_manage = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["node", "group"], name="core_nodepermission_node_group"),
+            models.UniqueConstraint(fields=["group"], condition=models.Q(node=None), name="core_nodepermission_global_group"),
+        ]
+
+    def __str__(self):
+        flags = "".join(c for c, on in zip("RWPM", (self.can_read, self.can_write, self.can_publish, self.can_manage)) if on)
+        return f"{self.group} auf {self.node or 'alles'}: {flags or '-'}"
+
+
+class AuditLog(models.Model):
+    ACTIONS = [(a, a) for a in ("create", "update", "delete", "move", "restore", "publish", "permissions",
+                                "login", "login_failed", "logout")]
+
+    user = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    # Kept as text so entries survive user deletion and record the name tried in failed logins.
+    username = models.CharField(max_length=150, blank=True)
+    action = models.CharField(max_length=20, choices=ACTIONS)
+    node = models.ForeignKey(Node, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    node_title = models.CharField(max_length=255, blank=True)
+    details = models.JSONField(default=dict, blank=True)
+    ip = models.GenericIPAddressField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+
+class UserSettings(models.Model):
+    """Per-user preferences that follow the account across devices."""
+    THEMES = [("auto", "System"), ("light", "Hell"), ("dark", "Dunkel")]
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, primary_key=True, related_name="findus_settings")
+    theme = models.CharField(max_length=5, choices=THEMES, default="auto")

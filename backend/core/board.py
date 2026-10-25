@@ -8,6 +8,8 @@ from rest_framework.decorators import api_view
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 
+from .permissions import READ, can
+
 BOARD_FILE = Path(os.environ.get("BOARD_FILE", "/board/board.md"))
 COLUMNS = ("nr", "task", "who", "status", "note")
 
@@ -29,7 +31,7 @@ def parse(text):
 
 @api_view(["GET"])
 def board(request):
-    if not request.user.is_authenticated:
+    if not can(request.user, READ):
         raise NotFound()
     try:
         text = BOARD_FILE.read_text(encoding="utf-8")

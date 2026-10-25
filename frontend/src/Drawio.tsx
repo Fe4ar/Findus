@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, NodeDetail } from "./api";
+import { useDirty } from "./Tabs";
+import { notify } from "./Dialog";
 
 // Self-hosted draw.io (container "drawio", Caddy path /drawio/ of the same host, so it also works behind NPM).
 // stealth=1 turns off every feature that calls external services.
@@ -18,6 +20,7 @@ export function DrawioView({ fileId }: { fileId: string }) {
   const [node, setNode] = useState<NodeDetail | null>(null);
   const [xml, setXml] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  useDirty(editing);
   const [error, setError] = useState("");
   const frame = useRef<HTMLIFrameElement>(null);
 
@@ -52,7 +55,7 @@ export function DrawioView({ fileId }: { fileId: string }) {
           post({ action: "status", message: "Gespeichert", modified: false });
           if (msg.exit) setEditing(false);
         } catch (e) {
-          alert(e instanceof ApiError ? e.message : "Speichern fehlgeschlagen.");
+          notify(e instanceof ApiError ? e.message : "Speichern fehlgeschlagen.");
         }
       } else if (msg.event === "exit") setEditing(false);
     };
@@ -60,6 +63,8 @@ export function DrawioView({ fileId }: { fileId: string }) {
     return () => removeEventListener("message", onMessage);
   }, [xml, node]);
 
+  // The static demo has no draw.io server behind it.
+  if (import.meta.env.VITE_DEMO) return <p className="muted">Schaubild „{node?.title ?? ""}“: draw.io ist in der statischen Demo nicht enthalten.</p>;
   if (error) return <p className="error" role="alert">{error}</p>;
   if (!node || xml === null) return <p className="muted">Lade Schaubild …</p>;
   const src = DRAWIO + "?" + PARAMS + (editing ? "&saveAndExit=1&noSaveBtn=0" : "&chrome=0&nav=1&toolbar=zoom");

@@ -1,0 +1,122 @@
+import { KeyboardEvent, useEffect, useRef, useState } from "react";
+import { Me, Theme } from "./api";
+
+export const THEMES: [Theme, string, string][] = [["light", "☀️", "Hell"], ["dark", "🌙", "Dunkel"], ["auto", "🖥️", "Automatisch"]];
+
+/** Initials from "First Last" (falls back to the username): "Anna Berg" → "AB", "admin" → "AD". */
+export function initials(name: string) {
+  const words = name.trim().split(/[\s._-]+/).filter(Boolean);
+  if (words.length >= 2) return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+  return (words[0] ?? "?").slice(0, 2).toUpperCase();
+}
+
+/** Theme choice as a radio group; used in the menu, the settings dialog and for anonymous visitors. */
+export function ThemeSwitch({ theme, onTheme, role = "radio" }: { theme: Theme; onTheme: (t: Theme) => void; role?: "radio" | "menuitemradio" }) {
+  return (
+    <div className="theme-switch" role={role === "radio" ? "radiogroup" : "group"} aria-label="Darstellung">
+      {THEMES.map(([id, icon, label]) => (
+        <button key={id} role={role} aria-checked={theme === id} title={label} onClick={() => onTheme(id)}>
+          <span aria-hidden="true">{icon}</span> <span className="label">{label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+interface Props {
+  me: Me;
+  theme: Theme;
+  onTheme: (t: Theme) => void;
+  onLogout: () => void;
+}
+
+/** Round avatar with initials; opens the account menu (WAI-ARIA menu button: arrows, Home/End, Esc). */
+export function ProfileMenu({ me, theme, onTheme, onLogout }: Props) {
+  const [open, setOpen] = useState(false);
+  const [settings, setSettings] = useState(false);
+  const button = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const name = me.name || me.username || "";
+
+  const items = () => [...(menu.current?.querySelectorAll<HTMLElement>("[role^=menuitem]") ?? [])];
+  const close = (focusButton = true) => {
+    setOpen(false);
+    if (focusButton) button.current?.focus();
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    items()[0]?.focus();
+    const outside = (e: MouseEvent) => {
+      if (!menu.current?.contains(e.target as Node) && !button.current?.contains(e.target as Node)) close(false);
+    };
+    document.addEventListener("mousedown", outside);
+    return () => document.removeEventListener("mousedown", outside);
+  }, [open]);
+
+  const onKey = (e: KeyboardEvent) => {
+    const list = items();
+    const i = list.indexOf(document.activeElement as HTMLElement);
+    const go = (n: number) => { e.preventDefault(); list[(n + list.length) % list.length]?.focus(); };
+    if (e.key === "ArrowDown") go(i + 1);
+    else if (e.key === "ArrowUp") go(i - 1);
+    else if (e.key === "Home") go(0);
+    else if (e.key === "End") go(list.length - 1);
+    else if (e.key === "Escape" || e.key === "Tab") close(e.key === "Escape");
+  };
+
+  const link = (href: string, label: string) => (
+    <a role="menuitem" tabIndex={-1} href={href} onClick={() => close(false)}>{label}</a>
+  );
+
+  return (
+    <div className="profile">
+      <button ref={button} className="avatar" aria-haspopup="menu" aria-expanded={open} aria-label={`Konto: ${name}`}
+        title={name} onClick={() => setOpen(!open)}
+        onKeyDown={(e) => { if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); } }}>
+        {initials(name)}
+      </button>
+      {open && (
+        <div ref={menu} className="profile-menu" role="menu" aria-label="Konto" onKeyDown={onKey}>
+          <div className="profile-head" aria-hidden="true">
+            <span className="avatar large">{initials(name)}</span>
+            <span><strong>{name}</strong>{me.username && me.username !== name && <small>{me.username}</small>}</span>
+          </div>
+          <div className="profile-section" aria-hidden="true">Darstellung</div>
+          <ThemeSwitch theme={theme} onTheme={onTheme} role="menuitemradio" />
+          <hr />
+          <button role="menuitem" tabIndex={-1} onClick={() => { close(false); setSettings(true); }}>Einstellungen</button>
+          {me.is_superuser && (
+            <>
+              {link("/admin/", "Verwaltung")}
+              {link("/admin/auth/group/", "Rechte und Gruppen")}
+              {link("/admin/core/auditlog/", "Audit-Log")}
+            </>
+          )}
+          <hr />
+          <button role="menuitem" tabIndex={-1} onClick={() => { close(false); onLogout(); }}>Abmelden</button>
+        </div>
+      )}
+      {settings && <Settings me={me} theme={theme} onTheme={onTheme} onClose={() => { setSettings(false); button.current?.focus(); }} />}
+    </div>
+  );
+}
+
+function Settings({ me, theme, onTheme, onClose }: { me: Me; theme: Theme; onTheme: (t: Theme) => void; onClose: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => ref.current?.showModal(), []);
+  return (
+    <dialog ref={ref} className="dialog modal" aria-labelledby="settings-title" onClose={onClose}>
+      <h2 id="settings-title">Einstellungen</h2>
+      <dl className="settings">
+        <dt>Name</dt><dd>{me.name || "–"}</dd>
+        <dt>Benutzername</dt><dd>{me.username}</dd>
+        <dt>Darstellung</dt>
+        <dd><ThemeSwitch theme={theme} onTheme={onTheme} /><small className="muted">Gilt für dein Konto auf allen Geräten.</small></dd>
+      </dl>
+      <div className="actions">
+        <button className="primary" onClick={() => ref.current?.close()}>Schließen</button>
+      </div>
+    </dialog>
+  );
+}

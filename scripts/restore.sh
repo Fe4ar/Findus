@@ -24,7 +24,9 @@ cat "$src/manifest"
 
 dc up -d --wait db
 dc stop web
-dc exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner --single-transaction' < "$src/db.dump"
+# Recreate the database instead of pg_restore --clean: tables from newer migrations would otherwise block the drop.
+dc exec -T db sh -c 'dropdb -U "$POSTGRES_USER" --if-exists --force "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'
+dc exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --single-transaction' < "$src/db.dump"
 dc run --rm --no-deps -T --entrypoint sh web -c 'find /data/media -mindepth 1 -delete && tar -C /data/media -xzf -' < "$src/media.tar.gz"
 # web runs pending migrations on start, so an older backup is brought up to the current code.
 dc up -d --build $services

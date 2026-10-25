@@ -1,0 +1,23 @@
+# Static demo (fictional data, no backend) on GitHub Pages. Manual only; needs Pages with a custom domain
+# or a <name>.github.io repo, because Findus uses absolute paths (no sub-path like /findus/).
+name: Demo
+on: workflow_dispatch
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency: pages
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/build-demo.sh
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: demo-dist
+      - id: deploy
+        uses: actions/deploy-pages@v4
