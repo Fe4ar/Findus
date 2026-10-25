@@ -1,0 +1,83 @@
+name: findus
+
+# Only caddy publishes ports: Docker bypasses ufw for published ports.
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: wiki
+      POSTGRES_USER: wiki
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wiki -d wiki"]
+      interval: 5s
+      retries: 20
+
+  web:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_HOST: db
+      MEDIA_ROOT: /data/media
+      WIKI_ALIASES: ${WIKI_ALIASES:-}
+    volumes:
+      - media:/data/media
+      # ~/jobs/board.md from CT 103, pushed here by cron (see STATUS.md).
+      - ./board:/board:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+  onlyoffice:
+    image: onlyoffice/documentserver:9.4.0.1
+    restart: unless-stopped
+    environment:
+      JWT_ENABLED: "true"
+      JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:?set in .env}
+      JWT_HEADER: Authorization
+      # The document URL points at the web container on the private compose network.
+      ALLOW_PRIVATE_IP_ADDRESS: "true"
+    volumes:
+      - onlyoffice_data:/var/www/onlyoffice/Data
+      - onlyoffice_logs:/var/log/onlyoffice
+
+  # draw.io editor, served by caddy under /drawio/; diagrams are stored in Findus, not here.
+  drawio:
+    image: jgraph/drawio:32.6.1
+    restart: unless-stopped
+
+  caddy:
+    build:
+      context: .
+      dockerfile: caddy/Dockerfile
+    restart: unless-stopped
+    environment:
+      WIKI_HOST: ${WIKI_HOST:-localhost}
+      WIKI_ALIASES: ${WIKI_ALIASES:-}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-private_ranges}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+    depends_on:
+      - web
+      - onlyoffice
+      - drawio
+
+# Volume names predate the project renames (tnc-wiki → Fundus → Findus); keeping them keeps the data.
+volumes:
+  pgdata:
+    name: tnc-wiki_pgdata
+  media:
+    name: tnc-wiki_media
+  caddy_data:
+    name: tnc-wiki_caddy_data
+  onlyoffice_data:
+    name: tnc-wiki_onlyoffice_data
+  onlyoffice_logs:
+    name: tnc-wiki_onlyoffice_logs

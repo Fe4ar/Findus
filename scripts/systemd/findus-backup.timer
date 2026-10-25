@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Findus backup at 02:30
+
+[Timer]
+OnCalendar=*-*-* 02:30
+# Catches up after the VM was off at 02:30.
+Persistent=true
+RandomizedDelaySec=2min
+
+[Install]
+WantedBy=timers.target

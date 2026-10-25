@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Own minimal cat head with forehead stripes, a nod to a striped tomcat, not a copy of any character. -->
+  <mask id="cut">
+    <rect width="32" height="32" fill="#fff"/>
+    <g fill="#000">
+      <path d="M14.9 8.6h2.2l-.6 5.2h-1z"/>
+      <path d="M10.6 10.2l1.9-.9 1.3 4.6-1 .5z"/>
+      <path d="M21.4 10.2l-1.9-.9-1.3 4.6 1 .5z"/>
+      <ellipse cx="11.6" cy="18.6" rx="2" ry="1.4"/>
+      <ellipse cx="20.4" cy="18.6" rx="2" ry="1.4"/>
+      <path d="M14.6 22.2h2.8L16 23.8z"/>
+    </g>
+  </mask>
+  <path fill="#c8641e" mask="url(#cut)" d="M4.6 13.4 5.4 2.6l7.4 5.8q3.2-.9 6.4 0l7.4-5.8.8 10.8q2.2 4 1.4 8Q27.4 29.4 16 29.4T3.2 21.4q-.8-4 1.4-8z"/>
+</svg>

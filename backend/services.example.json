@@ -1,0 +1,44 @@
+[
+  {
+    "group": "Infrastruktur",
+    "name": "Hypervisor",
+    "icon": "🖥️",
+    "url": "https://192.0.2.10:8006"
+  },
+  {
+    "group": "Infrastruktur",
+    "name": "Router",
+    "icon": "📡",
+    "url": "http://192.0.2.1"
+  },
+  {
+    "group": "Infrastruktur",
+    "name": "NAS",
+    "icon": "💾",
+    "url": "https://192.0.2.7"
+  },
+  {
+    "group": "Dienste",
+    "name": "Findus",
+    "icon": "📚",
+    "url": "https://findus.example.lan"
+  },
+  {
+    "group": "Dienste",
+    "name": "OnlyOffice",
+    "icon": "📝",
+    "url": "https://findus.example.lan/office/healthcheck"
+  },
+  {
+    "group": "Dienste",
+    "name": "draw.io",
+    "icon": "📐",
+    "url": "https://findus.example.lan/drawio/"
+  },
+  {
+    "group": "Geräte",
+    "name": "Drucker",
+    "icon": "🖨️",
+    "url": "http://192.0.2.103"
+  }
+]

@@ -1,0 +1,35 @@
+{
+  "name": "findus-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "@tiptap/react": "2.10.3",
+    "@tiptap/pm": "2.10.3",
+    "@tiptap/starter-kit": "2.10.3",
+    "@tiptap/extension-link": "2.10.3",
+    "@tiptap/extension-image": "2.10.3",
+    "@tiptap/extension-table": "2.10.3",
+    "@tiptap/extension-table-row": "2.10.3",
+    "@tiptap/extension-table-header": "2.10.3",
+    "@tiptap/extension-table-cell": "2.10.3",
+    "@tiptap/extension-code-block-lowlight": "2.10.3",
+    "lowlight": "3.2.0",
+    "highlight.js": "11.10.0",
+    "diff": "7.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "@vitejs/plugin-react": "4.3.3",
+    "typescript": "5.6.3",
+    "vite": "5.4.11",
+    "@types/diff": "6.0.0"
+  }
+}

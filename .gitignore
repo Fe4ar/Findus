@@ -1,0 +1,33 @@
+.env
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.pytest_cache/
+board/
+
+# Instance data and secrets: never in git (see scripts/check-public.sh, enforced by .githooks/pre-commit).
+.env*
+!.env.example
+backend/services.json
+media/
+uploads/
+backups/
+findus-backups/
+*.incomplete-*
+*.dump
+*.sql
+*.sql.gz
+*.tgz
+*.tar.gz
+*.zip
+# Office/diagram files belong into Findus, not into the code repo.
+*.docx
+*.xlsx
+*.pptx
+*.odt
+*.ods
+*.drawio
+*.pdf
+/demo-dist/
+/public-export/

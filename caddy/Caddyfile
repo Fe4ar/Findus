@@ -1,0 +1,48 @@
+{
+	# Clients connecting by IP send no SNI (NPM's upstream connection neither); without this the TLS handshake fails.
+	default_sni {$WIKI_HOST}
+	servers {
+		# Reverse proxy in front of WIKI_ALIASES: keep its X-Forwarded-* headers. Set TRUSTED_PROXIES to its address.
+		trusted_proxies static {$TRUSTED_PROXIES:private_ranges}
+	}
+}
+
+# WIKI_ALIASES: further names, e.g. a public name behind a reverse proxy. OnlyOffice and draw.io live under paths of the
+# same host, so they work behind NPM without extra ports, hosts or certificates.
+{$WIKI_HOST} {$WIKI_ALIASES} {
+	tls internal
+
+	# Internal OnlyOffice endpoints are reachable only inside the compose network.
+	handle /internal/* {
+		respond 404
+	}
+
+	handle_path /office/* {
+		reverse_proxy onlyoffice:80 {
+			# OnlyOffice builds its URLs from this; the prefix makes them point back under /office/.
+			header_up X-Forwarded-Host {hostport}/office
+		}
+	}
+
+	# draw.io may only talk to itself and be framed only by Findus: no calls to diagrams.net, Google Fonts or plugins.
+	handle_path /drawio/* {
+		header {
+			-X-Frame-Options
+			# The frame is sandboxed (origin "null"); draw.io loads its own static files via XHR and needs CORS for that.
+			Access-Control-Allow-Origin "*"
+			Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' data: blob:; worker-src 'self' blob:; frame-src 'self'; frame-ancestors 'self'"
+		}
+		reverse_proxy drawio:8080
+	}
+
+	@django path /api/* /admin /admin/* /media-dl/* /static/*
+	handle @django {
+		reverse_proxy web:8000
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}
