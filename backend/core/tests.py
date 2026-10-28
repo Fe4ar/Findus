@@ -5,6 +5,16 @@ from rest_framework.test import APIClient
 from .models import Node
 
 
+@pytest.fixture(autouse=True)
+def legacy_groups(db):
+    """Migration 0015 removes the empty IT-Team/Leser groups; many tests still use them as plain groups, so recreate them."""
+    from .models import NodePermission
+    for name, flags in {"IT-Team": (True, True, True, False), "Leser": (True, False, False, False)}.items():
+        g, _ = Group.objects.get_or_create(name=name)
+        r, w, p, m = flags
+        NodePermission.objects.get_or_create(node=None, group=g, defaults=dict(can_read=r, can_write=w, can_publish=p, can_manage=m))
+
+
 @pytest.fixture
 def user(db):
     u = User.objects.create_user("tester", password="x-test-pass-1")
@@ -527,7 +537,7 @@ def test_inheritance_is_union_over_ancestors(admin, db):
     assert c.get(f"/api/nodes/{area}").json()["permissions"]["write"] is False
     assert c.patch(f"/api/nodes/{area}", {"title": "x"}, format="json").status_code == 403  # readable, not writable
     assert c.get(f"/api/nodes/{other}").status_code == 404
-    assert [n["title"] for n in c.get("/api/tree").json()] == ["IT"]
+    assert [n["title"] for n in c.get("/api/tree").json()] == ["FAQ für Anwender", "IT"]  # public areas are open to everyone
     # Writer without publish right: new pages start as drafts and cannot be published by them.
     new = c.post("/api/nodes", {"kind": "page", "title": "Neu", "parent": folder}, format="json").json()
     assert new["status"] == "draft"
@@ -535,7 +545,8 @@ def test_inheritance_is_union_over_ancestors(admin, db):
     assert c.get(f"/api/nodes/{folder}/permissions").status_code == 403  # no manage right
     inherited = {g["name"]: g for g in admin.get(f"/api/nodes/{folder}/permissions").json()["groups"]}
     assert inherited["Technik"]["inherited"]["can_read"] and inherited["Technik"]["own"]["can_write"]
-    assert inherited["IT-Team"]["inherited"] == {"can_read": True, "can_write": True, "can_publish": True, "can_manage": False}
+    # Global rights of IT-Team no longer reach nodes (only node=None questions); areas carry their own rows.
+    assert inherited["IT-Team"]["inherited"] == {"can_read": False, "can_write": False, "can_publish": False, "can_manage": False}
 
 
 def test_group_roles(admin, db):
@@ -543,6 +554,9 @@ def test_group_roles(admin, db):
     page = create(admin, "page", "Proxmox", area)
     draft = create(admin, "page", "Entwurf", area)
     admin.patch(f"/api/nodes/{draft}", {"status": "draft"}, format="json")
+    from .models import NodePermission
+    NodePermission.objects.create(node_id=area, group=Group.objects.get(name="Leser"))
+    NodePermission.objects.create(node_id=area, group=Group.objects.get(name="IT-Team"), can_write=True, can_publish=True)
     _, reader = _member("lisa", "Leser")
     assert reader.get(f"/api/nodes/{page}").status_code == 200
     assert reader.get(f"/api/nodes/{draft}").status_code == 404  # drafts only for writers
@@ -556,7 +570,7 @@ def test_group_roles(admin, db):
     assert it.get(f"/api/nodes/{area}/permissions").status_code == 403
     assert it.patch(f"/api/nodes/{area}", {"is_public": True}, format="json").status_code == 403
     _, nobody = _member("nemo")
-    assert nobody.get("/api/tree").json() == [] and nobody.get("/api/services").status_code == 404
+    assert [n["title"] for n in nobody.get("/api/tree").json()] == ["FAQ für Anwender"] and nobody.get("/api/services").status_code == 404
 
 
 def test_anonymous_sees_only_published_public_content(admin, db):
@@ -632,3 +646,237 @@ def test_karte_areas(client):
     assert "Büro" not in [n["title"] for n in client.get("/api/tree").json()]
     # Only wiki areas can be public.
     assert client.patch(f"/api/nodes/{area['id']}", {"is_public": True}, format="json").status_code in (400, 403)
+
+
+# --- v0.6: teams, rights per folder, download right, trash, audit ----------------------------------------------
+
+def _team(admin, name, leader, members=()):
+    rows = [{"user": leader.id, "is_leader": True}] + [{"user": u.id, "can_write": w} for u, w in members]
+    r = admin.post("/api/teams", {"name": name, "members": rows}, format="json")
+    assert r.status_code == 201, r.content
+    return r.json()
+
+
+def test_team_area_visible_only_to_members(admin, db):
+    lead, lc = _member("lea")
+    reader, rc = _member("rudi")
+    writer, wc = _member("willi")
+    _, other = _member("ida", "IT-Team")  # global IT-Team rights must not reach a team area
+    team = _team(admin, "Netz", lead, [(reader, False), (writer, True)])
+    area = team["area"]
+    page = create(lc, "page", "Intern", area)
+    assert rc.get(f"/api/nodes/{page}").status_code == 200
+    assert rc.put(f"/api/pages/{page}/content", {"html": "x", "base_version": 1}, format="json").status_code == 403
+    assert wc.put(f"/api/pages/{page}/content", {"html": "x", "base_version": 1}, format="json").status_code == 200
+    assert other.get(f"/api/nodes/{page}").status_code == 404
+    assert [n["title"] for n in other.get("/api/tree").json()] == [] or "Netz" not in [n["title"] for n in other.get("/api/tree").json()]
+    assert any(n["title"] == "Netz" for n in admin.get("/api/tree").json())
+    # Leader: may change the write right of a member, nothing else.
+    r = lc.patch(f"/api/teams/{team['id']}", {"members": [{"user": lead.id, "is_leader": True}, {"user": reader.id, "can_write": True},
+                                                       {"user": writer.id, "can_write": True}]}, format="json")
+    assert r.status_code == 200
+    assert rc.put(f"/api/pages/{page}/content", {"html": "y", "base_version": 2}, format="json").status_code == 200
+    assert lc.patch(f"/api/teams/{team['id']}", {"members": [{"user": lead.id, "is_leader": True}]}, format="json").status_code == 403
+    assert lc.post("/api/teams", {"name": "X", "members": []}, format="json").status_code == 403
+    assert wc.patch(f"/api/teams/{team['id']}", {"trash_days": 5}, format="json").status_code == 404  # writer is not a leader
+
+
+def test_download_right(admin, db):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    area = create(admin, "area", "Doku")
+    f = admin.post("/api/files", {"parent": area, "file": SimpleUploadedFile("a.txt", b"hallo")}, format="multipart").json()
+    from .models import NodePermission
+    NodePermission.objects.create(node_id=area, group=Group.objects.get(name="Leser"))
+    u, c = _member("lisa", "Leser")
+    url = f["versions"][0]["url"]
+    assert c.get(url + "?download=1").status_code == 200
+    assert admin.patch(f"/api/admin/users/{u.id}", {"can_download": False}, format="json").status_code == 200
+    assert c.get(url + "?download=1").status_code == 403
+    assert c.get(url).status_code == 200  # inline (images in pages) stays
+    assert c.get(f"/api/nodes/{area}/export?type=md").status_code == 403
+    assert c.get("/api/auth/me").json()["can_download"] is False
+    assert c.get("/api/admin/users").status_code == 403
+
+
+def test_rights_per_folder(admin, db):
+    area = create(admin, "area", "Doku")
+    sub = create(admin, "folder", "Drucker", area)
+    _, it = _member("ina", "IT-Team")
+    from .models import NodePermission
+    NodePermission.objects.create(node_id=area, group=Group.objects.get(name="IT-Team"), can_write=True)
+    data = admin.get("/api/admin/folders").json()
+    row = {r["title"]: r for r in data["rows"]}
+    assert row["Doku"]["vis"]["badge"] == "Nur IT-Team" and row["Drucker"]["inherit"] is True
+    assert row["Drucker"]["vis"]["text"].endswith("(geerbt)")
+    g = next(p["key"] for p in data["principals"] if p["label"] == "Leser")
+    # "Ohne Anmeldung" exists only inside the FAQ: anywhere else it is refused
+    r = admin.put("/api/admin/folders/save", {"rows": [{"id": sub, "inherit": False, "public": True, "cells": {}}]}, format="json")
+    assert r.status_code == 400
+    faq = str(Node.objects.get(title="FAQ für Anwender").id)
+    fsub = create(admin, "folder", "Drucker FAQ", faq)
+    fpage = create(admin, "page", "Treiber", fsub)
+    assert APIClient().get(f"/api/nodes/{fpage}").status_code == 200  # inherited from the public FAQ
+    r = admin.put("/api/admin/folders/save", {"faq": True, "rows": [{"id": fsub, "inherit": False, "public": False, "cells": {}}]}, format="json")
+    assert r.status_code == 200
+    assert APIClient().get(f"/api/nodes/{fpage}").status_code == 404  # a private FAQ folder
+    admin.put("/api/admin/folders/save", {"faq": True, "rows": [{"id": fsub, "inherit": True}]}, format="json")
+    assert APIClient().get(f"/api/nodes/{fpage}").status_code == 200
+    assert [r["title"] for r in admin.get("/api/admin/folders?faq=1").json()["rows"]][:1] == ["FAQ für Anwender"]
+    # Team view: a leader sees only the team's area; leaving "erben" keeps the other groups' access
+    lead, lc = _member("lea")
+    team = _team(admin, "Netz", lead)
+    tf = create(lc, "folder", "Intern", team["area"])
+    data = lc.get(f"/api/admin/folders?team={team['id']}").json()
+    assert [r["title"] for r in data["rows"]] == ["Netz", "Intern"] and [p["label"] for p in data["principals"]] == ["Netz"]
+    assert lc.get("/api/admin/folders").status_code == 403 and lc.get("/api/admin/folders?faq=1").status_code == 403
+    key = data["principals"][0]["key"]
+    r = lc.put("/api/admin/folders/save", {"team": team["id"], "rows": [{"id": tf, "inherit": False, "cells": {key: {"see": True, "edit": False}}}]}, format="json")
+    assert r.status_code == 200
+    row = {x["title"]: x for x in lc.get(f"/api/admin/folders?team={team['id']}").json()["rows"]}["Intern"]
+    assert row["inherit"] is False and row["cells"][key] == {"see": True, "edit": False}
+    other = admin.get(f"/api/admin/folders?team={team['id']}").json()  # admin sees every non-FAQ folder for this team
+    assert any(r["title"] == "Doku" for r in other["rows"]) and not any(r["title"] == "FAQ für Anwender" for r in other["rows"])
+
+
+def test_trash_restore_purge_and_audit(admin, db):
+    from datetime import timedelta
+    from django.core.management import call_command
+    from django.utils import timezone
+    lead, lc = _member("lea")
+    writer, wc = _member("willi")
+    team = _team(admin, "Netz", lead, [(writer, True)])
+    page = create(lc, "page", "Alt", team["area"])
+    assert wc.delete(f"/api/nodes/{page}").status_code == 204
+    items = wc.get("/api/trash").json()["items"]
+    assert [i["title"] for i in items] == ["Alt"] and items[0]["can_purge"] is False
+    assert wc.delete(f"/api/trash/{page}").status_code == 403
+    assert wc.post(f"/api/trash/{page}/restore").status_code == 200
+    assert wc.get(f"/api/nodes/{page}").status_code == 200
+    lc.delete(f"/api/nodes/{page}")
+    assert lc.patch(f"/api/teams/{team['id']}", {"trash_days": 3}, format="json").status_code == 200
+    Node.objects.filter(pk=page).update(deleted_at=timezone.now() - timedelta(days=2))
+    call_command("purge_trash")
+    assert Node.objects.filter(pk=page).exists()
+    Node.objects.filter(pk=page).update(deleted_at=timezone.now() - timedelta(days=4))
+    call_command("purge_trash")
+    assert not Node.objects.filter(pk=page).exists()
+    # Leader sees the log of the own team only, admin can filter by team.
+    mine = lc.get("/api/audit").json()
+    assert mine["items"] and all(i["team"] == "Netz" for i in mine["items"])
+    assert wc.get("/api/audit").status_code == 403
+    assert admin.get(f"/api/audit?team={team['id']}&action=delete").json()["total"] >= 1
+
+
+def test_dashboard_user_team_global(admin, db):
+    from .models import Shortcut, ShortcutCategory
+    lead, lc = _member("lea")
+    mem, mc = _member("mia")
+    team = _team(admin, "Netz", lead, [(mem, False)])
+    cat = lc.post("/api/dashboard/categories", {"name": "Dienste", "team": team["id"]}, format="json").json()["id"]
+    sc = lc.post("/api/dashboard/shortcuts", {"category": cat, "name": "Switch", "url": "http://198.51.100.6"}, format="json").json()["id"]
+    cats = {c["name"]: c for c in mc.get("/api/dashboard").json()["categories"]}
+    assert cats["Dienste"]["kind"] == "team" and not cats["Dienste"]["editable"]
+    assert mc.delete(f"/api/dashboard/shortcuts/{sc}").status_code == 404  # members cannot delete team shortcuts
+    assert mc.post("/api/dashboard/categories", {"name": "X", "team": team["id"]}, format="json").status_code == 404
+    assert mc.post("/api/dashboard/categories", {"name": "G", "global": True}, format="json").status_code == 403
+    own = mc.post("/api/dashboard/categories", {"name": "Privat"}, format="json").json()["id"]
+    a = mc.post("/api/dashboard/shortcuts", {"category": own, "name": "A", "url": "https://a.example"}, format="json").json()["id"]
+    b = mc.post("/api/dashboard/shortcuts", {"category": own, "name": "B", "url": "https://b.example"}, format="json").json()["id"]
+    assert mc.put("/api/dashboard/order", {"shortcuts": {str(own): [b, a]}}, format="json").status_code == 200
+    mine = next(c for c in mc.get("/api/dashboard").json()["categories"] if c["name"] == "Privat")
+    assert [x["name"] for x in mine["shortcuts"]] == ["B", "A"]
+    assert lc.get("/api/dashboard").json()["categories"] and "Privat" not in [c["name"] for c in lc.get("/api/dashboard").json()["categories"]]
+    assert mc.post("/api/dashboard/shortcuts", {"category": own, "name": "bad", "url": "javascript:alert(1)"}, format="json").status_code == 400
+    assert admin.post("/api/dashboard/categories", {"name": "G", "global": True}, format="json").status_code == 201
+    for given, stored in [("192.0.2.1", "http://192.0.2.1"), ("fritz.box:8080", "http://fritz.box:8080"), ("tcp://192.0.2.1:22", "tcp://192.0.2.1:22")]:
+        r = mc.post("/api/dashboard/shortcuts", {"category": own, "name": "S", "url": given}, format="json")
+        assert r.status_code == 201 and Shortcut.objects.get(pk=r.json()["id"]).url == stored, given
+
+
+def test_views_stats_and_faq_editors(admin, db):
+    faq = str(Node.objects.get(title="FAQ für Anwender").id)
+    page = create(admin, "page", "Drucker", faq)
+    anon = APIClient()
+    assert anon.post(f"/api/nodes/{page}/view").status_code == 204
+    assert anon.post(f"/api/nodes/{page}/view").status_code == 204  # same viewer within a minute: once
+    assert admin.post(f"/api/nodes/{page}/view").status_code == 204
+    from .models import PageCounter
+    assert PageCounter.objects.get(node_id=page).total == 2
+    land = anon.get("/api/faq").json()
+    assert land["top"][0]["title"] == "Drucker" and land["top"][0]["views"] == 2
+    st = admin.get("/api/stats").json()
+    assert st["counts"]["faqs"] >= 1 and st["top7"][0]["title"] == "Drucker" and st["recent"][0]["user"] in ("chef", "anonym")
+    assert anon.get("/api/stats").status_code == 403
+    assert all(anon.get(u).status_code in (401, 403, 404) for u in ("/api/teams", "/api/trash", "/api/audit", "/api/admin/folders", "/api/admin/users", "/api/dashboard"))
+    assert [h["title"] for h in anon.get("/api/search?q=Drucker&faq=1").json()] == ["Drucker"]
+    # FAQ editors: without any configured, IT-Team keeps writing; once configured only the named people may.
+    lead, lc = _member("lea")
+    from .models import NodePermission
+    NodePermission.objects.update_or_create(node_id=faq, group=Group.objects.get(name="IT-Team"), defaults=dict(can_read=True, can_write=True, can_publish=True))  # area rows were removed with migration 0015
+    it, itc = _member("ina", "IT-Team")
+    assert itc.patch(f"/api/nodes/{page}", {"title": "Drucker 2"}, format="json").status_code == 200
+    team = _team(admin, "Redaktion", lead, [(it, True)])
+    r = admin.put("/api/admin/faq-editors", {"users": [lead.id], "teams": []}, format="json")
+    assert r.status_code == 200 and r.json()["restricted"] is True
+    assert itc.patch(f"/api/nodes/{page}", {"title": "Drucker 3"}, format="json").status_code == 403  # not named
+    assert itc.get(f"/api/nodes/{page}").status_code == 200  # reading stays open
+    NodeP = __import__("core.models", fromlist=["NodePermission"]).NodePermission
+    NodeP.objects.update_or_create(node_id=faq, group=Group.objects.get(name="Team Redaktion · Schreiben"), defaults=dict(can_read=True, can_write=True, can_publish=True))
+    assert lc.patch(f"/api/nodes/{page}", {"title": "Drucker 4"}, format="json").status_code == 200  # named person
+    admin.put("/api/admin/faq-editors", {"users": [], "teams": [team["id"]]}, format="json")
+    assert itc.patch(f"/api/nodes/{page}", {"title": "Drucker 5"}, format="json").status_code == 200  # whole team named
+    assert admin.put("/api/admin/faq-editors", {"users": [it.id + 999], "teams": []}, format="json").status_code == 400
+    # Ticket link: only http(s); the public landing data carries it only when a URL is set
+    assert anon.get("/api/faq").json()["ticket"] is None
+    assert admin.put("/api/admin/faq-editors", {"users": [], "teams": [team["id"]], "ticket_url": "javascript:alert(1)"}, format="json").status_code == 400
+    r = admin.put("/api/admin/faq-editors", {"users": [], "teams": [team["id"]], "ticket_url": "https://tickets.example/new?subject={q}", "ticket_label": "Ticket öffnen"}, format="json")
+    assert r.status_code == 200 and anon.get("/api/faq").json()["ticket"] == {"url": "https://tickets.example/new?subject={q}", "label": "Ticket öffnen"}
+    assert itc.get("/api/admin/faq-editors").status_code == 403
+
+
+def test_migration_0015_drops_only_empty_legacy_groups(db):
+    import importlib
+    from django.apps import apps
+    from .models import NodePermission
+    mig = importlib.import_module("core.migrations.0015_drop_legacy_groups")
+    leser = Group.objects.get(name="Leser")
+    User.objects.create_user("lena", password="x-test-pass-1").groups.add(leser)
+    mig.drop_empty(apps, None)
+    assert not Group.objects.filter(name="IT-Team").exists()
+    assert not NodePermission.objects.filter(group__name="IT-Team").exists()
+    assert Group.objects.filter(name="Leser").exists() and NodePermission.objects.filter(group=leser).exists()
+    assert Group.objects.filter(name="Admin").exists()
+
+
+def test_user_admin_flag_keeps_other_groups(admin, db):
+    u = User.objects.create_user("gina", password="x-test-pass-1")
+    g_admin, g_leser = Group.objects.get(name="Admin"), Group.objects.get(name="Leser")
+    u.groups.add(g_leser)
+    r = admin.patch(f"/api/admin/users/{u.id}", {"groups": [g_leser.id, g_admin.id]}, format="json")
+    assert r.status_code == 200 and sorted(r.json()["groups"]) == ["Admin", "Leser"]
+
+
+def test_recent_pages_per_user(admin, db):
+    from datetime import timedelta
+    from django.utils import timezone
+    from .models import PageView
+    a = create(admin, "area", "Doku")
+    p1, p2, p3 = (create(admin, "page", t, a) for t in ("Eins", "Zwei", "Drei"))
+    for pid in (p1, p2, p3):
+        assert admin.post(f"/api/nodes/{pid}/view").status_code == 204
+    PageView.objects.filter(node_id=p1).update(at=timezone.now() - timedelta(hours=1))
+    got = admin.get("/api/recent").json()
+    assert [x["title"] for x in got][-1] == "Eins" and {x["title"] for x in got} == {"Eins", "Zwei", "Drei"} and got[0]["area"] == "Doku"
+    other, oc = _member("rolf")
+    assert oc.get("/api/recent").json() == []  # per user, not global
+    assert APIClient().get("/api/recent").status_code in (401, 403, 404)
+    admin.delete(f"/api/nodes/{p2}")
+    assert "Zwei" not in [x["title"] for x in admin.get("/api/recent").json()]
+
+
+def test_single_team_area_is_not_shown_as_open_to_all(admin, db):
+    Group.objects.filter(name__in=["IT-Team", "Leser"]).delete()  # state after migration 0015
+    lead, _ = _member("lea")
+    team = _team(admin, "Netz", lead, [])
+    row = next(n for n in admin.get("/api/tree").json() if n["id"] == team["area"])
+    assert row["vis"]["badge"] == "Nur Netz" and row["vis"]["kind"] == "team"

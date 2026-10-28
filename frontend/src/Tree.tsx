@@ -1,9 +1,29 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { api, ApiError, Kind, NodeSummary } from "./api";
 import { wantsNewTab } from "./Tabs";
 import { ask, confirmDialog, notify } from "./Dialog";
+import { Icon } from "./Icons";
 
-const ICONS: Record<Kind, string> = { area: "▣", folder: "📁", page: "📄", file: "📎", map: "🗺️", link: "📐" };
+const EMOJI: Partial<Record<Kind, string>> = { file: "📎", map: "🗺️", link: "📐" };
+
+function KindIcon({ kind }: { kind: Kind }) {
+  return kind === "area" || kind === "folder" ? <Icon name="folder" size={16} /> : kind === "page" ? <Icon name="fileText" size={16} />
+    : <span aria-hidden="true">{EMOJI[kind]}</span>;
+}
+
+// Folds are remembered per user (not per session), as a list of open node ids.
+let treeUser = "";
+const openKey = () => `findus-tree-open:${treeUser}`;
+function loadOpen(): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem(openKey()) ?? "[]")); } catch { return new Set(); }
+}
+function storeOpen(id: string, open: boolean) {
+  try {
+    const s = loadOpen();
+    open ? s.add(id) : s.delete(id);
+    localStorage.setItem(openKey(), JSON.stringify([...s]));
+  } catch { /* storage unavailable */ }
+}
 const isContainer = (k: Kind) => k === "area" || k === "folder";
 
 interface Menu {
@@ -28,9 +48,11 @@ interface TreeProps {
   space?: Space;
   canCreateRoot?: boolean;
   onOpenTab?: (id: string) => void; // Ctrl/middle click and "In neuem Tab öffnen"
+  user?: string;
 }
 
-export function Tree({ selected, onSelect, version, onChanged, space = "wiki", canCreateRoot = true, onOpenTab }: TreeProps) {
+export function Tree({ selected, onSelect, version, onChanged, space = "wiki", canCreateRoot = true, onOpenTab, user = "" }: TreeProps) {
+  treeUser = user;
   const [menu, setMenu] = useState<Menu | null>(null);
 
   useEffect(() => {
@@ -156,23 +178,29 @@ function Branch({ parent, space = "wiki", ...rest }: BranchProps) {
   if (!items) return <div className="tree-loading" style={{ paddingLeft: rest.depth * 16 + 8 }}>…</div>;
   return (
     <ul className="branch" role={rest.depth === 0 ? "tree" : "group"}>
-      {items.map((n) => <Item key={n.id} node={n} {...rest} />)}
+      {items.map((n, i) => {
+        // Top level of the wiki: small-caps headings, "Dokumentation" for the normal areas and one per team area.
+        const group = (x: NodeSummary) => (x.team ? (/^team\b/i.test(x.team) ? x.team : `Team ${x.team}`) : x.vis?.kind === "public" ? "FAQ" : "Dokumentation");
+        const head = rest.depth === 0 && space === "wiki" && n.kind === "area" && (i === 0 || group(items[i - 1]) !== group(n)) ? group(n) : null;
+        return (
+          <Fragment key={n.id}>
+            {head && <li className="tree-heading" role="presentation">{head}</li>}
+            <Item node={n} {...rest} />
+          </Fragment>
+        );
+      })}
     </ul>
   );
 }
 
 function Item({ node, depth, selected, onSelect, version, onMenu, onMove, onOpenTab }: { node: NodeSummary } & Omit<BranchProps, "parent" | "space">) {
-  const [open, setOpen] = useState(() => sessionStorage.getItem(`open:${node.id}`) === "1");
+  const [open, setOpen] = useState(() => loadOpen().has(node.id));
   const [dropTarget, setDropTarget] = useState(false);
   const container = isContainer(node.kind);
 
   function toggle(v: boolean) {
     setOpen(v);
-    try {
-      sessionStorage.setItem(`open:${node.id}`, v ? "1" : "0");
-    } catch {
-      /* storage unavailable */
-    }
+    storeOpen(node.id, v);
   }
 
   return (
@@ -206,10 +234,10 @@ function Item({ node, depth, selected, onSelect, version, onMenu, onMove, onOpen
           if (node.writable !== false || onOpenTab) onMenu({ x: e.clientX, y: e.clientY, node });
         }}
       >
-        <button className="twisty" aria-label={open ? "Zuklappen" : "Aufklappen"} tabIndex={-1}
+        <button className={`twisty${open ? " open" : ""}`} aria-label={open ? "Zuklappen" : "Aufklappen"} tabIndex={-1}
           style={{ visibility: container && node.has_children ? "visible" : "hidden" }}
           onClick={() => toggle(!open)}>
-          {open ? "▾" : "▸"}
+          <Icon name="chevron" size={14} />
         </button>
         <button className="label"
           onClick={(e) => {
@@ -219,9 +247,13 @@ function Item({ node, depth, selected, onSelect, version, onMenu, onMove, onOpen
           }}
           onMouseDown={(e) => { if (e.button === 1 && onOpenTab) e.preventDefault(); }} // no autoscroll on middle click
           onAuxClick={(e) => { if (e.button === 1 && onOpenTab) onOpenTab(node.id); }}>
-          <span aria-hidden>{ICONS[node.kind]}</span> {node.title}
+          <KindIcon kind={node.kind} /><span className="label-text">{node.title}</span>
           {node.status === "draft" && <span className="badge">Entwurf</span>}
         </button>
+        {node.vis && node.vis.kind !== "public" && (depth === 0
+          ? <span className={`vis-badge vis-${node.vis.kind}`} title={node.vis.text}>{node.vis.badge}</span>
+          // Below the top level only a dot with a tooltip, so the folder name keeps its room.
+          : <span className={`vis-dot vis-${node.vis.kind}`} title={node.vis.text} role="img" aria-label={node.vis.text} />)}
       </div>
       {container && open && (
         <Branch parent={node.id} depth={depth + 1} selected={selected} onSelect={onSelect} version={version}

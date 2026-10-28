@@ -5,6 +5,5 @@ After=docker.service
 
 [Service]
 Type=oneshot
-# Adjust user and path to your installation.
-User=findus
-ExecStart=/opt/findus/scripts/backup.sh
+User=@USER@
+ExecStart=@DIR@/scripts/backup.sh

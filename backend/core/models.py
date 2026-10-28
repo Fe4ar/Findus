@@ -33,6 +33,11 @@ class Node(models.Model):
     status = models.CharField(max_length=10, choices=[(DRAFT, "Entwurf"), (PUBLISHED, "Veröffentlicht")], default=PUBLISHED)
     # Only meaningful on areas: anonymous users may read its published content (see permissions.py).
     is_public = models.BooleanField(default=False)
+    # Folders may override the rights of their parent: with inherit_rights=False the node's own rows (and its own
+    # is_public) govern it and everything below, and the rows above are ignored (see permissions.py).
+    inherit_rights = models.BooleanField(default=True)
+    # Only on areas: "never without login" – is_public can no longer be set anywhere in this area (internal areas, team areas).
+    never_public = models.BooleanField(default=False)
     version = models.IntegerField(default=1)
     created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
     updated_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
@@ -118,7 +123,7 @@ class NodePermission(models.Model):
 
 class AuditLog(models.Model):
     ACTIONS = [(a, a) for a in ("create", "update", "delete", "move", "restore", "publish", "permissions",
-                                "login", "login_failed", "logout")]
+                                "login", "login_failed", "logout", "team", "user")]
 
     user = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     # Kept as text so entries survive user deletion and record the name tried in failed logins.
@@ -128,6 +133,8 @@ class AuditLog(models.Model):
     node_title = models.CharField(max_length=255, blank=True)
     details = models.JSONField(default=dict, blank=True)
     ip = models.GenericIPAddressField(null=True, blank=True)
+    # The team whose area the entry concerns, so leaders see their team's log.
+    team = models.ForeignKey("Team", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
@@ -140,3 +147,86 @@ class UserSettings(models.Model):
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, primary_key=True, related_name="findus_settings")
     theme = models.CharField(max_length=5, choices=THEMES, default="auto")
+    # Set by admins: file download, PDF/Markdown export and OnlyOffice download/print (see permissions.can_download).
+    can_download = models.BooleanField(default=True)
+
+
+class Team(models.Model):
+    """A team owns a knowledge area. Its members get rights on the area through two groups, so the normal
+    NodePermission checks apply: "Team X · Lesen" (read) and "Team X · Schreiben" (read, write, publish)."""
+    name = models.CharField(max_length=100, unique=True)
+    area = models.OneToOneField(Node, null=True, on_delete=models.SET_NULL, related_name="team")
+    read_group = models.OneToOneField("auth.Group", null=True, on_delete=models.SET_NULL, related_name="+")
+    write_group = models.OneToOneField("auth.Group", null=True, on_delete=models.SET_NULL, related_name="+")
+    # Deleted content stays this many days in the team's trash; leaders may change it.
+    trash_days = models.PositiveIntegerField(default=40)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+class TeamMember(models.Model):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="members")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="team_memberships")
+    is_leader = models.BooleanField(default=False)
+    # Leaders always write; for everyone else this is the right per member.
+    can_write = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["team", "user"], name="core_teammember_unique")]
+
+
+class ShortcutCategory(models.Model):
+    """Dashboard category. Owner: a user (private), a team (set by its leader) or nobody (global, set by admins)."""
+    user = models.ForeignKey(User, null=True, blank=True, on_delete=models.CASCADE, related_name="shortcut_categories")
+    team = models.ForeignKey(Team, null=True, blank=True, on_delete=models.CASCADE, related_name="shortcut_categories")
+    name = models.CharField(max_length=100)
+    position = models.IntegerField(default=0)
+
+    class Meta:
+        ordering = ["position", "id"]
+
+
+class Shortcut(models.Model):
+    category = models.ForeignKey(ShortcutCategory, on_delete=models.CASCADE, related_name="shortcuts")
+    name = models.CharField(max_length=100)
+    url = models.CharField(max_length=500)
+    # An emoji, or "favicon" to show the site's own icon.
+    icon = models.CharField(max_length=40, default="🔗")
+    description = models.CharField(max_length=300, blank=True)
+    position = models.IntegerField(default=0)
+
+    class Meta:
+        ordering = ["position", "id"]
+
+
+class PageView(models.Model):
+    """One view of a page (who, when); raw rows are purged after 90 days, PageCounter keeps the totals."""
+    node = models.ForeignKey(Node, on_delete=models.CASCADE, related_name="views")
+    user = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")  # null = anonymous
+    at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+
+class PageCounter(models.Model):
+    node = models.OneToOneField(Node, on_delete=models.CASCADE, related_name="counter")
+    total = models.PositiveIntegerField(default=0)
+    last_viewed = models.DateTimeField(null=True)
+
+
+class FaqEditor(models.Model):
+    """Who may edit the public FAQ: single people (team empty), whole teams (user empty). No rows = rights as before."""
+    team = models.ForeignKey(Team, null=True, blank=True, on_delete=models.CASCADE, related_name="faq_editors")
+    user = models.ForeignKey(User, null=True, blank=True, on_delete=models.CASCADE, related_name="+")
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["team", "user"], name="core_faqeditor_unique")]
+
+
+class FaqSettings(models.Model):
+    """Single row (pk=1): where "Ticket erstellen" on the public FAQ leads; empty URL = no button."""
+    ticket_url = models.CharField(max_length=500, blank=True)  # may contain {q}, replaced by the search term in the browser
+    ticket_label = models.CharField(max_length=60, default="Ticket erstellen")

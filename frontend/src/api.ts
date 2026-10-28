@@ -8,6 +8,8 @@ export interface NodeSummary {
   position: number;
   has_children: boolean;
   writable?: boolean; // tree listings only
+  vis?: { kind: "public" | "login" | "team" | "admin"; badge: string; text: string }; // wiki containers in tree listings
+  team?: string | null; // team areas: the owning team
 }
 
 export interface FileVersion {
@@ -46,7 +48,11 @@ export interface Me {
   username?: string;
   name?: string;
   is_superuser?: boolean;
+  is_admin?: boolean;
+  can_overview?: boolean;
   can_create_area?: boolean;
+  can_download?: boolean;
+  teams?: { id: number; name: string; leader: boolean; can_write: boolean }[];
   theme?: Theme;
 }
 
@@ -54,7 +60,9 @@ export type Theme = "auto" | "light" | "dark";
 
 export class ApiError extends Error {
   constructor(public status: number, public body: any) {
-    super(body?.detail || `Fehler ${status}`);
+    // DRF field errors look like {"url": "..."} or {"url": ["..."]}: show the first message instead of just the status.
+    const field = body && typeof body === "object" ? Object.values(body).flat().find((v) => typeof v === "string") : undefined;
+    super(body?.detail || (field as string | undefined) || `Fehler ${status}`);
   }
 }
 

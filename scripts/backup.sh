@@ -1,13 +1,13 @@
 #!/bin/sh
 # Findus backup: database dump, media files and .env into ~/findus-backups/<date>/, keeps the newest 14.
 # Usage: scripts/backup.sh            (run from anywhere; the timer runs it daily at 02:30)
-# Env:   BACKUP_DIR (default ~/findus-backups), KEEP (default 14), COMPOSE_PROJECT (default findus)
+# Env:   BACKUP_DIR (default ~/findus-backups), KEEP (default 14), COMPOSE_PROJECT (default: the project of this checkout, i.e. its folder name)
 set -eu
 
 cd "$(dirname "$0")/.."
 BACKUP_DIR=${BACKUP_DIR:-$HOME/findus-backups}
 KEEP=${KEEP:-14}
-dc() { docker compose -p "${COMPOSE_PROJECT:-findus}" "$@"; }
+dc() { docker compose ${COMPOSE_PROJECT:+-p "$COMPOSE_PROJECT"} "$@"; }
 
 name=$(date +%Y-%m-%d_%H%M)
 umask 077

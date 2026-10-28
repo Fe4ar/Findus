@@ -19,11 +19,11 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET
 from markdownify import markdownify
 from rest_framework.decorators import api_view
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 
 from .files import ONLYOFFICE_INTERNAL, WEB_INTERNAL
 from .models import FileVersion, Node
-from .permissions import READ, can
+from .permissions import READ, can, can_download
 
 EXPORTABLE = (Node.AREA, Node.FOLDER, Node.PAGE)
 DRAWIO_RE = re.compile(r'<div data-drawio="([0-9a-f-]{36})"></div>')
@@ -155,6 +155,8 @@ def export_node(request, node_id):
     node = Node.objects.filter(pk=node_id, deleted_at=None).first()
     if node is None or not can(request.user, READ, node):
         raise NotFound()
+    if not can_download(request.user):
+        raise PermissionDenied("Export ist für dein Konto nicht freigegeben.")
     if node.kind not in EXPORTABLE:
         raise ValidationError({"detail": "Exportiert werden können Seiten, Ordner und Bereiche."})
     # Not "format": DRF reserves that query parameter for choosing its renderer.

@@ -45,7 +45,7 @@ export function Rights({ node, onSaved }: { node: NodeDetail; onSaved: (n: NodeD
   return (
     <section className="rights" aria-label="Rechte">
       <h3>Rechte</h3>
-      {node.kind === "area" && node.space === "wiki" && (
+      {node.kind === "area" && node.space === "wiki" && node.is_public && (
         <label className="rights-public">
           <input type="checkbox" checked={node.is_public} disabled={saving} onChange={async (e) => {
             try {

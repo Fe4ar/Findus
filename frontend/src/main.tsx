@@ -4,7 +4,9 @@ import { api, ApiError, Me, Theme } from "./api";
 import { Tree } from "./Tree";
 import { confirmDialog, DialogHost } from "./Dialog";
 import { NodeView } from "./NodeView";
-import { Dashboard } from "./Dashboard";
+import { Dashboard, Recent } from "./Dashboard";
+import { Admin, AdminNav } from "./Admin";
+import { Faq } from "./Faq";
 import { Tasks } from "./Tasks";
 import { NetView } from "./Karte";
 import { Search } from "./Search";
@@ -14,7 +16,7 @@ import {
 import { ProfileMenu, ThemeSwitch } from "./ProfileMenu";
 import "./styles.css";
 
-type Tab = "overview" | "wiki" | "map";
+type Tab = "overview" | "wiki" | "map" | "admin";
 // Top-level tabs. A new tab adds an entry here and a case in the content switch in App.
 const TABS: { id: Tab; label: string; path: string }[] = [
   { id: "overview", label: "Übersicht", path: "/" },
@@ -37,11 +39,12 @@ if (location.pathname.startsWith("/karte")) {
 function sectionOf(path: string): Tab {
   const p = path.split("?")[0];
   if (p.startsWith("/n/") || p.startsWith("/wiki")) return "wiki";
+  if (p.startsWith("/verwaltung")) return "admin";
   return p.startsWith("/netzwerk") ? "map" : "overview";
 }
 
 // Paths a Ctrl/middle click may open as an in-app tab; everything else (downloads, admin, editors) stays native.
-const TAB_PATH = /^\/(?:$|n\/|wiki|netzwerk|karte)/;
+const TAB_PATH = /^\/(?:$|n\/|wiki|netzwerk|karte|verwaltung)/;
 
 function Login({ onLogin, onPublic }: { onLogin: (me: Me) => void; onPublic: () => void }) {
   const [username, setUsername] = useState("");
@@ -103,7 +106,7 @@ function App() {
     if (me?.authenticated) api("/api/auth/settings", { method: "PUT", body: { theme: t } }).catch(() => {});
   };
   // Logged out: login form first; shared links to pages (/n/<id>) open the public view directly.
-  const [publicView, setPublicView] = useState(!!currentId());
+  const [publicView, setPublicView] = useState(!!currentId() || location.pathname.startsWith("/wiki"));
 
   const anon = !!me && !me.authenticated;
   const user = me?.authenticated ? me.username ?? "" : null;
@@ -249,15 +252,15 @@ function App() {
             onLogout={async () => { await api("/api/auth/logout", { method: "POST" }); setMe({ authenticated: false }); }} />
         )}
       </header>
-      {!anon && (
-        <TabBar state={{ ...state, split }} dirty={dirty} version={treeVersion} onActivate={activate} onClose={closeTab}
-          onCloseOthers={closeOthers} onReorder={reorder} onPin={pin} onNew={() => openTab("/", true)}
-          onSplit={(id) => setState((s) => ({ ...s, split: id }))} />
-      )}
       {section === "wiki" && (
         <nav className="sidebar" aria-label="Ordnerbaum">
           <Tree selected={selectedId} onSelect={(id) => go(id ? `/n/${id}` : "/wiki")} version={treeVersion} onChanged={changed}
-            canCreateRoot={!!me.can_create_area} onOpenTab={anon ? undefined : (id) => openTab(`/n/${id}`)} />
+            canCreateRoot={!!me.can_create_area} onOpenTab={anon ? undefined : (id) => openTab(`/n/${id}`)} user={user ?? ""} />
+          {!anon && (
+            <div className="sidebar-foot">
+              <a href="/verwaltung" onClick={(e) => { e.preventDefault(); dispatchEvent(new Event("findus-settings")); }}>Mein Konto</a> · <a href="/wiki" onClick={(e) => { e.preventDefault(); go("/wiki"); }}>Hilfe</a>
+            </div>
+          )}
         </nav>
       )}
       {section === "map" && (
@@ -266,6 +269,15 @@ function App() {
             onChanged={changed} canCreateRoot={!!me.can_create_area} onOpenTab={(id) => openTab(`/netzwerk/${id}`)} />
         </nav>
       )}
+      {section === "admin" && (
+        <nav className="sidebar" aria-label="Verwaltung"><AdminNav me={me} path={activePath} go={go} /></nav>
+      )}
+      <div className="workspace">
+        {!anon && (
+          <TabBar state={{ ...state, split }} dirty={dirty} version={treeVersion} onActivate={activate} onClose={closeTab}
+            onCloseOthers={closeOthers} onReorder={reorder} onPin={pin} onNew={() => openTab("/", true)}
+            onSplit={(id) => setState((s) => ({ ...s, split: id }))} />
+        )}
       <main className={split ? "content split" : "content"}>
         {(anon ? [activeTab] : state.tabs).map((t) => (
           // Every open tab stays mounted (hidden) so editors, OnlyOffice and draw.io keep their state.
@@ -273,16 +285,17 @@ function App() {
             aria-label={t.id === split ? "Rechte Hälfte" : undefined}
             onPointerDownCapture={() => { if (t.id !== state.active) activate(t.id); }}>
             <TabContext.Provider value={{ setDirty: dirtySetter(t.id) }}>
-              <View path={t.path} anon={anon} go={(path) => goIn(t.id, path)} changed={changed} />
+              <View path={t.path} anon={anon} me={me} go={(path) => goIn(t.id, path)} changed={changed} />
             </TabContext.Provider>
           </section>
         ))}
       </main>
+      </div>
     </div>
   );
 }
 
-function View({ path, anon, go, changed }: { path: string; anon: boolean; go: (path: string) => void; changed: () => void }) {
+function View({ path, anon, me, go, changed }: { path: string; anon: boolean; me: Me; go: (path: string) => void; changed: () => void }) {
   const p = path.split("?")[0];
   const id = nodeIdOf(p);
   if (p.startsWith("/netzwerk") && !anon) {
@@ -293,7 +306,9 @@ function View({ path, anon, go, changed }: { path: string; anon: boolean; go: (p
       </>
     );
   }
+  if (p.startsWith("/verwaltung") && !anon) return <Admin me={me} path={path} go={go} />;
   if (p.startsWith("/n/") && id) return <NodeView key={id} id={id} onSelect={(nid) => go(nid ? `/n/${nid}` : "/wiki")} onChanged={changed} />;
+  if (anon && !id) return <Faq onSelect={(nid) => go(`/n/${nid}`)} />;
   if (p.startsWith("/wiki") || anon) {
     return (
       <>
@@ -305,9 +320,8 @@ function View({ path, anon, go, changed }: { path: string; anon: boolean; go: (p
   return (
     <>
       <h1>Übersicht</h1>
-      <h2>Aktuelle Aufgaben</h2>
-      <Tasks />
-      <h2>Dienste im Netz</h2>
+      {me.can_overview && <><h2>Aktuelle Aufgaben</h2><Tasks /></>}
+      <Recent />
       <Dashboard />
     </>
   );

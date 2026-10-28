@@ -5,7 +5,7 @@
   mit `SHA256SUMS` und `manifest` (Commit, letzte Migration). Die neuesten 14 Stände bleiben, ältere werden gelöscht.
   Halbfertige Sicherungen liegen nur als `.incomplete-*` und zählen nicht.
 - Zeitplan: systemd-Timer täglich 02:30 (`scripts/systemd/`). Einrichten:
-  `sudo cp scripts/systemd/findus-backup.* /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now findus-backup.timer`.
+  `scripts/install-timers.sh` (setzt Benutzer und Pfad des Checkouts ein, aktiviert Backup- und Papierkorb-Timer; anderer Benutzer: `SERVICE_USER=name`).
   Prüfen: `systemctl list-timers findus-backup.timer`, Log: `journalctl -u findus-backup`.
 - Kopie auf ein zweites System (NAS o. Ä.) einrichten: die Ordner unter `~/findus-backups/` regelmäßig wegkopieren.
 - `scripts/restore.sh <Ordner>`: spielt einen Stand in den **isolierten Test-Stack** ein (`docker-compose.test.yml`,
@@ -31,3 +31,15 @@
 - Audit-Log: Anlegen, Ändern, Verschieben, Löschen, Veröffentlichen, Wiederherstellen, Rechteänderungen und Anmeldungen
   (auch fehlgeschlagene) mit Benutzer, Ziel, Details und IP. Ansehen: /admin/ → Audit logs (nur lesbar).
 - Alle Prüfungen laufen über `permissions.can(user, action, node)` (backend/core/permissions.py).
+
+## Teams, Rechte und Papierkorb (v0.6)
+- Teams (Verwaltung → Teams) haben einen eigenen Bereich, Mitglieder und Teamleiter; das Recht je Mitglied (Lesen / Lesen und
+  Schreiben) setzt der Teamleiter. Technisch sind es zwei Gruppen je Team („Team X · Lesen“/„· Schreiben“) mit `NodePermission`-Zeilen
+  auf dem Bereich, die normale Rechteprüfung (`permissions.can`) gilt unverändert.
+- Globale Gruppenrechte (`node=None`) gelten nur noch für Fragen ohne Knoten (Bereiche anlegen, Übersicht); auf Bereiche wirken
+  sie über Zeilen am Bereich (die Migration 0009 kopiert sie auf alle bestehenden Bereiche) oder bei Gruppen mit „verwalten“ (Admin).
+- Rechte je Ordner: ein Ordner kann „erben“ oder eigene Häkchen setzen (überschreibt die darüber); „Ohne Anmeldung“ ist nur in
+  Bereichen ohne `never_public` möglich.
+- Papierkorb: Gelöschtes bleibt je Team (Standard 40 Tage) und wird vom Timer endgültig gelöscht, ebenso Seitenaufrufe nach 90 Tagen.
+  Einrichten: `scripts/install-timers.sh` (siehe oben).
+  Probelauf: `docker compose exec web python manage.py purge_trash --dry-run`.

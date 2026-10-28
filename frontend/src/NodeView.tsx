@@ -27,7 +27,7 @@ export function NodeView({ id, onSelect, onChanged }: Props) {
 
   useEffect(() => {
     api<NodeDetail>(`/api/nodes/${id}`)
-      .then(setNode)
+      .then((n) => { setNode(n); if (n.kind === "page") api(`/api/nodes/${id}/view`, { method: "POST" }).catch(() => {}); })
       .catch((e) => setError(e instanceof ApiError && e.status === 404 ? "Eintrag nicht gefunden." : "Laden fehlgeschlagen."));
   }, [id]);
 

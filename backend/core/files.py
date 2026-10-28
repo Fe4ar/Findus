@@ -17,12 +17,12 @@ from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 from rest_framework.decorators import api_view
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.response import Response
 
 from .models import FileVersion, Node
 from . import audit
-from .permissions import PUBLISH, READ, WRITE, can
+from .permissions import PUBLISH, READ, WRITE, can, can_download
 from .search import version_text
 from .views import node_detail, node_or_404, user_name
 
@@ -148,7 +148,10 @@ def media_download(request, version_id):
     node = fv.node
     if any(n.deleted_at for n in [node, *node.ancestors()]) or not can(request.user, READ, node):
         raise Http404()
-    return _file_response(fv, request.GET.get("download") == "1")
+    download = request.GET.get("download") == "1"
+    if download and not can_download(request.user):
+        return JsonResponse({"detail": "Herunterladen ist für dein Konto nicht freigegeben."}, status=403)
+    return _file_response(fv, download)
 
 
 # --- OnlyOffice -----------------------------------------------------------------------------------------------
@@ -177,7 +180,7 @@ def onlyoffice_config(request, node_id):
             "key": fv.id.hex,
             "title": fv.original_name,
             "url": f"{WEB_INTERNAL}/internal/oo-download/{download_token}",
-            "permissions": {"edit": mode == "edit", "download": True, "print": True},
+            "permissions": {"edit": mode == "edit", "download": can_download(request.user), "print": can_download(request.user)},
         },
         "documentType": doc_type,
         "editorConfig": {

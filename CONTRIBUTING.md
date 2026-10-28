@@ -19,3 +19,9 @@ By contributing you agree that your contribution is licensed under the project l
 - Every release is a tag `vX.Y.Z`; `frontend/package.json` carries the same version.
 - `CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com) (Added / Changed / Fixed), newest first.
 - Pushing a tag runs `.github/workflows/release.yml`, which creates the GitHub release from that CHANGELOG section.
+
+## Release flow
+
+- `main` on GitHub is always the stable version that runs in production.
+- Release candidates (`-rcN` tags) are tried on a separate test machine as an update of an existing install, plus a migration test with a copy of real data in an isolated stack (`docker-compose.test.yml`).
+- Only an accepted candidate becomes the next stable tag; production is updated after that, never before.

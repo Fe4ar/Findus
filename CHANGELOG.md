@@ -2,6 +2,27 @@
 
 All notable changes, newest first. Versions follow [SemVer](https://semver.org).
 
+## [0.6.0] - 2026-10-29
+
+### Added
+- Teams with their own knowledge area, members and leaders; read or read/write right per member
+- Per-user download/export right; export, file download and OnlyOffice download are blocked without it
+- Folder rights per team (inherit or own rights), public access only inside the FAQ
+- Trash per team with retention (default 40 days), purge command and systemd timer
+- Audit log per team, page view counter and statistics, admin menu (users, teams, trash, log, system)
+- Personal dashboard with own, team and global shortcuts, "recently visited" tile; sidebar tree with visibility badges
+- Public FAQ landing page with search, most read posts and an optional ticket link; FAQ editors setting
+- New-user and new-team dialogs keep a draft; add a new user straight from the team dialog
+- Unattended createsuperuser, install-timers.sh for backup and purge timers
+
+### Changed
+- Light theme with higher contrast (WCAG AA); tabs only above the content, permanent sidebar
+- Users: single Administrator checkbox; migration 0015 removes empty IT-Team and Leser groups (rights come from teams)
+
+### Fixed
+- Dashboard shortcut addresses without a scheme get http://; API field errors are shown instead of "Fehler 400"
+- Sidebar no longer scrolls sideways; visibility badge of a single team area
+
 ## [0.5.0] - 2026-10-27
 
 Stable release of 0.5.0-rc1 (same code, now running in production).

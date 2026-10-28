@@ -22,14 +22,28 @@ live status. Everything runs on your own server; nothing calls external services
 - Backup and restore scripts, isolated test stack
 
 ## Quickstart
-Requirements: Docker with Compose.
+Requirements: a Linux server with Docker and the Compose plugin, 3 GB RAM or more (OnlyOffice needs about 750 MB), 10 GB disk.
+If Docker is missing: `curl -fsSL https://get.docker.com | sudo sh`, then `sudo usermod -aG docker $USER` and log in again
+(otherwise every command needs `sudo`).
 
-    cp .env.example .env            # fill the secrets: openssl rand -hex 32
-    docker compose up -d --build
-    scripts/createsuperuser.sh      # create the admin account
+    cp .env.example .env            # set WIKI_HOST (name or IP of the server), fill the secrets: openssl rand -hex 32
+    docker compose up -d --build    # first start: 5–10 minutes (frontend build, images of about 3 GB)
+    scripts/createsuperuser.sh      # create the admin account (asks for the password)
 
-Open `https://<WIKI_HOST>` (Caddy issues a certificate from its internal CA; trust it once in the browser).
-The service dashboard reads `backend/services.json`; copy `backend/services.example.json` to start.
+Unattended, e.g. in a setup script: `DJANGO_SUPERUSER_PASSWORD=… scripts/createsuperuser.sh admin you@example.org`.
+Check with `docker compose ps` (all five services up) and `curl -k https://<WIKI_HOST>/api/health`.
+
+Open `https://<WIKI_HOST>`. Caddy signs the certificate with its own CA, so browsers warn on the first visit.
+Either accept it once, or trust the CA on your clients: `docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt .`
+and import `root.crt` into the operating system or browser certificate store. For a public name, put a reverse proxy
+with a normal certificate in front and list its name in `WIKI_ALIASES` / its address in `TRUSTED_PROXIES`.
+
+After the first login the overview shows a short "first steps" hint: create dashboard categories and shortcuts per user,
+set up teams under Administration → Teams. The optional `backend/services.example.json` is read once when the database is
+created (copy it to `backend/services.json` before the first start) and becomes the global shortcuts.
+
+Daily backup and trash purge: `scripts/install-timers.sh` (installs systemd timers for the current user and path).
+Everything else, in German: [docs/BETRIEB.md](docs/BETRIEB.md).
 
 Tests: `docker compose run --rm -v "$PWD/backend":/app web pytest -q`.
 Operations (backup, restore, permissions, in German): [docs/BETRIEB.md](docs/BETRIEB.md).
@@ -49,5 +63,7 @@ Wiki-Seiten, Dateien mit Versionen, Office-Dokumente im Browser (OnlyOffice), Sc
 Netzwerkkarte mit Live-Status. Alles läuft auf dem eigenen Server, ohne externe Dienste.
 
 **Schnellstart:** `.env.example` nach `.env` kopieren und Secrets setzen, `docker compose up -d --build`,
-`scripts/createsuperuser.sh`. Betrieb, Backup und Rechte: [docs/BETRIEB.md](docs/BETRIEB.md).
+`scripts/createsuperuser.sh` (ohne Rückfrage: `DJANGO_SUPERUSER_PASSWORD=… scripts/createsuperuser.sh <name>`). Der erste Start dauert
+5–10 Minuten, das Zertifikat stammt von Caddys eigener CA (Vertrauen: siehe Quickstart oben). Timer für Backup und Papierkorb:
+`scripts/install-timers.sh`. Betrieb, Backup und Rechte: [docs/BETRIEB.md](docs/BETRIEB.md).
 Eine statische Demo mit erfundenen Daten baut `scripts/build-demo.sh`.

@@ -13,8 +13,8 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.response import Response
 
 from .models import Node, NodePermission, PageRevision, UserSettings
-from . import audit
-from .permissions import FLAGS, MANAGE, PUBLISH, READ, WRITE, can, effective
+from . import audit, rights
+from .permissions import FLAGS, MANAGE, PUBLISH, READ, WRITE, _chain, can, can_download, effective, governing, is_admin
 from .search import revision_text
 
 # Tags TipTap produces; everything else is stripped server-side.
@@ -49,9 +49,13 @@ def user_name(u):
     return (u.get_full_name() or u.get_username()) if u else None
 
 
-def node_summary(n):
-    return {"id": n.id, "kind": n.kind, "title": n.title, "status": n.status, "position": n.position,
-            "has_children": n.kind in Node.CONTAINERS and n.children.filter(deleted_at=None).exists()}
+def node_summary(n, ctx=None):
+    out = {"id": n.id, "kind": n.kind, "title": n.title, "status": n.status, "position": n.position,
+           "has_children": n.kind in Node.CONTAINERS and n.children.filter(deleted_at=None).exists()}
+    if ctx is not None and n.kind in Node.CONTAINERS and n.space == Node.WIKI:
+        out["vis"] = ctx.visibility(n)  # same logic as the "Wirksam" column of the rights page
+        out["team"] = ctx.team_of_area.get(n.pk)
+    return out
 
 
 def node_detail(user, n):
@@ -137,7 +141,9 @@ def me_data(user):
     if not user.is_authenticated:
         return {"authenticated": False}
     return {"authenticated": True, "username": user.get_username(), "name": user_name(user),
-            "is_superuser": user.is_superuser, "can_create_area": can(user, WRITE),
+            "is_superuser": user.is_superuser, "is_admin": is_admin(user), "can_create_area": can(user, WRITE), "can_overview": can(user, READ),
+            "can_download": can_download(user), "teams": [{"id": m.team_id, "name": m.team.name, "leader": m.is_leader, "can_write": m.is_leader or m.can_write}
+                      for m in user.team_memberships.select_related("team")],
             "theme": getattr(getattr(user, "findus_settings", None), "theme", "auto")}
 
 
@@ -168,7 +174,8 @@ def tree(request):
     else:
         space = request.query_params.get("space") or Node.WIKI
         qs = Node.objects.filter(parent=None, deleted_at=None, space=space)
-    return Response([{**node_summary(n), "writable": can(request.user, WRITE, n)} for n in qs if can(request.user, READ, n)])
+    ctx = rights.Context()
+    return Response([{**node_summary(n, ctx), "writable": can(request.user, WRITE, n)} for n in qs if can(request.user, READ, n)])
 
 
 @api_view(["POST"])
@@ -198,6 +205,13 @@ def node_create(request):
     node = Node.objects.create(parent=parent, kind=kind, space=space, title=title[:255], target=target,
                                position=(last.position + 1) if last else 0, status=status,
                                created_by=request.user, updated_by=request.user)
+    if parent is None and not is_admin(request.user):
+        # A new area starts with the creator's groups only (Admins see everything anyway); rights are set on the rights page.
+        for p in NodePermission.objects.filter(node=None, group__user=request.user):
+            NodePermission.objects.create(node=node, group=p.group, can_read=p.can_read, can_write=p.can_write,
+                                          can_publish=p.can_publish)
+        node.never_public = True
+        node.save(update_fields=["never_public"])
     audit.log(request, "create", node, kind=kind)
     return Response(node_detail(request.user, node), status=201)
 
@@ -239,7 +253,9 @@ def node_view(request, node_id):
             raise ValidationError({"is_public": "Nur Bereiche im Wiki können öffentlich sein."})
         if not can(request.user, MANAGE, node):
             raise PermissionDenied()
-        node.is_public = bool(data["is_public"])
+        if data["is_public"]:
+            raise ValidationError({"is_public": "„Ohne Anmeldung“ gibt es nur im FAQ."})
+        node.is_public = False
     if "parent" in data and str(data["parent"] or "") != str(node.parent_id or ""):
         target = node_or_404(request.user, data["parent"], WRITE) if data["parent"] else None
         validate_parent(node.kind, target, node.space)
@@ -349,10 +365,11 @@ def node_permissions(request, node_id):
             NodePermission.objects.bulk_create(NodePermission(node=node, group_id=g, **f) for g, f in new.items())
         audit.log(request, "permissions", node, before=old, after={by_id[g].name: f for g, f in new.items()})
         request.user.__dict__.pop("_findus_grants", None)
-    chain = [a.pk for a in node.ancestors()]
+    chain = _chain(node)[1:]
+    chain = [a.pk for a in chain[:governing(_chain(node)) ]]  # what inherits down to this node (up to the governing one)
     own = {p.group_id: _flags(p) for p in node.permissions.all()}
     inherited = {}
-    for p in NodePermission.objects.filter(Q(node=None) | Q(node_id__in=chain)):
+    for p in NodePermission.objects.filter(Q(node=None, can_manage=True) | Q(node_id__in=chain)):
         acc = inherited.setdefault(p.group_id, dict.fromkeys(FLAGS.values(), False))
         for f, on in _flags(p).items():
             acc[f] = acc[f] or on

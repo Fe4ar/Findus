@@ -1,5 +1,6 @@
 import { KeyboardEvent, useEffect, useRef, useState } from "react";
 import { Me, Theme } from "./api";
+import { adminAllowed } from "./Admin";
 
 export const THEMES: [Theme, string, string][] = [["light", "☀️", "Hell"], ["dark", "🌙", "Dunkel"], ["auto", "🖥️", "Automatisch"]];
 
@@ -37,6 +38,11 @@ export function ProfileMenu({ me, theme, onTheme, onLogout }: Props) {
   const button = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const name = me.name || me.username || "";
+  useEffect(() => {
+    const openSettings = () => setSettings(true);
+    addEventListener("findus-settings", openSettings);
+    return () => removeEventListener("findus-settings", openSettings);
+  }, []);
 
   const items = () => [...(menu.current?.querySelectorAll<HTMLElement>("[role^=menuitem]") ?? [])];
   const close = (focusButton = true) => {
@@ -86,13 +92,7 @@ export function ProfileMenu({ me, theme, onTheme, onLogout }: Props) {
           <ThemeSwitch theme={theme} onTheme={onTheme} role="menuitemradio" />
           <hr />
           <button role="menuitem" tabIndex={-1} onClick={() => { close(false); setSettings(true); }}>Einstellungen</button>
-          {me.is_superuser && (
-            <>
-              {link("/admin/", "Verwaltung")}
-              {link("/admin/auth/group/", "Rechte und Gruppen")}
-              {link("/admin/core/auditlog/", "Audit-Log")}
-            </>
-          )}
+          {adminAllowed(me) && link("/verwaltung", "Verwaltung")}
           <hr />
           <button role="menuitem" tabIndex={-1} onClick={() => { close(false); onLogout(); }}>Abmelden</button>
         </div>

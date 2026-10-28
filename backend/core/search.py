@@ -16,7 +16,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from .models import Node
-from .permissions import READ, can
+from .permissions import is_public, READ, can
 
 # A tsvector may not exceed 1 MB; plain text of that length is far beyond any useful document.
 MAX_CHARS = 200_000
@@ -113,8 +113,9 @@ def search(request):
           .select_related("parent")
           .order_by("-rank", "title")[:100])
     hits = []
+    faq_only = request.query_params.get("faq") == "1"  # the public FAQ's search box: only public content
     for n in qs:
-        if not _visible(request.user, n):
+        if not _visible(request.user, n) or (faq_only and not is_public(n)):
             continue
         hits.append({"id": n.id, "kind": n.kind, "title": n.title,
                      "path": " / ".join(a.title for a in n.ancestors()),

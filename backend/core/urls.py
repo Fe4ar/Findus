@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import board, export, files, maps, search, services, views
+from . import admin_api, board, dashboard, stats, export, files, maps, search, services, views
 
 urlpatterns = [
     path("api/health", views.health),
@@ -15,6 +15,28 @@ urlpatterns = [
     path("api/nodes/<uuid:node_id>/maps", maps.page_maps),
     path("api/nodes/<uuid:node_id>/export", export.export_node),
     path("api/search", search.search),
+    path("api/nodes/<uuid:node_id>/view", stats.record_view),
+    path("api/stats", stats.stats),
+    path("api/faq", stats.faq),
+    path("api/recent", stats.recent),
+    path("api/admin/faq-editors", stats.faq_editors),
+    path("api/dashboard", dashboard.dashboard),
+    path("api/dashboard/categories", dashboard.category_create),
+    path("api/dashboard/categories/<int:cat_id>", dashboard.category_edit),
+    path("api/dashboard/shortcuts", dashboard.shortcut_create),
+    path("api/dashboard/shortcuts/<int:sc_id>", dashboard.shortcut_edit),
+    path("api/dashboard/order", dashboard.order),
+    path("api/admin/users", admin_api.users),
+    path("api/admin/users/<int:user_id>", admin_api.user_edit),
+    path("api/teams", admin_api.team_list),
+    path("api/teams/<int:team_id>", admin_api.team_edit),
+    path("api/admin/folders", admin_api.folders),
+    path("api/admin/folders/save", admin_api.folders_save),
+    path("api/trash", admin_api.trash),
+    path("api/trash/<uuid:node_id>/restore", admin_api.trash_restore),
+    path("api/trash/<uuid:node_id>", admin_api.trash_purge),
+    path("api/audit", admin_api.audit_log),
+    path("api/admin/system", admin_api.system),
     path("api/tree", views.tree),
     path("api/nodes", views.node_create),
     path("api/nodes/<uuid:node_id>", views.node_view),

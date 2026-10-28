@@ -1,5 +1,6 @@
 import { createContext, MouseEvent as ReactMouseEvent, useContext, useEffect, useState } from "react";
 import { api, Kind, NodeDetail } from "./api";
+import { Icon } from "./Icons";
 
 /** One open view in the in-app tab bar; its path is the URL it shows (e.g. /n/<id>, /netzwerk/<id>, /). */
 export interface DocTab {
@@ -62,6 +63,7 @@ function useTabLabel(path: string, version: number) {
     if (!id) {
       const p = path.split("?")[0];
       setLabel(p === "/" ? { icon: "🏠", title: "Übersicht" } : p.startsWith("/netzwerk") ? { icon: "🗺️", title: "Netzwerk" }
+        : p.startsWith("/verwaltung") ? { icon: "gear", title: "Verwaltung" }
         : { icon: "📚", title: "Wiki" });
       return;
     }
@@ -112,7 +114,7 @@ export function TabBar(p: BarProps) {
   }, []);
   const tab = menu && p.state.tabs.find((t) => t.id === menu.id);
   return (
-    <div className="tabbar" role="tablist" aria-label="Offene Tabs">
+    <div className={`tabbar${p.state.tabs.length === 1 ? " single" : ""}`} role="tablist" aria-label="Offene Tabs">
       {p.state.tabs.map((t) => (
         <TabButton key={t.id} tab={t} {...p} onMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, id: t.id }); }} />
       ))}
@@ -151,7 +153,7 @@ function TabButton({ tab, state, dirty, version, onActivate, onClose, onReorder,
       onAuxClick={(e) => { if (e.button === 1 && !tab.pinned) onClose(tab.id); }}
       onContextMenu={onMenu}>
       <button className="doctab-label" onClick={() => onActivate(tab.id)}>
-        <span aria-hidden="true">{tab.pinned ? "📌" : icon}</span>
+        <span aria-hidden="true">{tab.pinned ? "📌" : icon === "gear" ? <Icon name="gear" size={14} /> : icon}</span>
         {!tab.pinned && <span className="doctab-title">{title}</span>}
         {dirty[tab.id] && <span className="doctab-dirty" title="Ungespeicherte Änderungen" aria-label="ungespeichert">●</span>}
       </button>

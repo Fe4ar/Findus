@@ -1,0 +1,10 @@
+[Unit]
+Description=Findus: delete expired trash items and old page views
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=@USER@
+WorkingDirectory=@DIR@
+ExecStart=/usr/bin/docker compose exec -T web python manage.py purge_trash

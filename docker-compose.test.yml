@@ -1,6 +1,6 @@
 # Isolated test stack for restore tests and pre-deploy checks: https://<WIKI_HOST>:9443
 # Standalone on purpose (do NOT combine with docker-compose.yml via -f): its own project and its own volumes,
-# so it can never touch the live tnc-wiki_* volumes. No OnlyOffice/draw.io; those pages show an error here.
+# so it can never touch the volumes of the production stack. No OnlyOffice/draw.io; those pages show an error here.
 #   docker compose -f docker-compose.test.yml up -d --build
 #   scripts/restore.sh ~/findus-backups/<date>          (restores into this stack by default)
 #   docker compose -f docker-compose.test.yml down -v   (removes the test stack and its data)
