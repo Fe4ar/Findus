@@ -1,25 +1,70 @@
 # Findus
 
+[![Version](https://img.shields.io/badge/version-0.6.0-orange)](https://github.com/Fe4ar/Findus/releases/latest)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
+
 **English** · [Deutsch](#deutsch)
 
-Findus is a self-hosted internal wiki and documentation hub for small IT teams: a folder tree with wiki pages,
-files with version history, Office documents in the browser (OnlyOffice), diagrams (draw.io) and a network map with
-live status. Everything runs on your own server; nothing calls external services.
+Findus is a self-hosted internal wiki and documentation hub for small IT teams. One place for how-tos, network
+documentation and files: a folder tree with wiki pages, files with version history, Office documents in the browser,
+diagrams, rack and network maps with live status, and a public FAQ for your users. Everything runs on your own server
+with Docker; nothing calls external services.
 
 > **Status:** private preview. Try the [demo](#demo) (static, fictional data, no backend).
 
-![Overview](docs/screenshots/uebersicht.png)
+## Current version: <!--v-->0.6.0<!--/v--> · [Changelog](CHANGELOG.md)
 
-## Features
-- Folder tree with areas, folders, pages and files; drag & drop, drafts and publishing
+The latest stable release is shown in the badge above and on the [Releases](https://github.com/Fe4ar/Findus/releases) page;
+every release lists what changed in the [Changelog](CHANGELOG.md). Work on 0.7 is in testing and not released yet.
+
+![Overview in dark mode](docs/screenshots/uebersicht-dunkel.png)
+
+## What you get
+
+**Knowledge base**
+- Folder tree with areas, folders, pages and files; drag & drop, drafts and publishing, visibility badges in the tree
 - Page editor (TipTap) with tables, code blocks, images and embedded draw.io diagrams; full version history with diff and restore
 - Files with versions; Office files open and save in OnlyOffice, `.drawio` files in a self-hosted draw.io
-- Network tab: rack and topology maps with live reachability, links to manuals and diagrams
-- Full-text search (PostgreSQL, German stemming) over pages and documents
-- Permissions per group with inheritance, public read-only areas, audit log
-- Export of pages and folders as PDF or Markdown
-- Dashboard of internal services with online status; light and dark theme per user
-- Backup and restore scripts, isolated test stack
+- Full-text search (PostgreSQL, German stemming) over pages and documents; export of pages and folders as PDF or Markdown
+
+![Wiki page](docs/screenshots/wiki-seite-dunkel.png)
+
+**Network documentation**
+- Rack and topology maps: 16 device types with front graphics, snapping into rack units, front/back view, ports and cables
+- Live reachability per device, cable colours by medium or VLAN, rack metrics (units, power, weight), search inside maps
+- Undo/redo, copy/paste, multi-select, export as SVG or PNG; link devices to manuals and diagrams
+
+![Network map](docs/screenshots/netzwerkkarte-dunkel.png)
+
+**Teams and permissions**
+- Teams with their own knowledge area, members, leaders and a read or read/write right per member
+- Permissions per group with inheritance down the tree, per-user download/export right, audit log
+- Trash per team with retention and a purge timer; page view counter and statistics
+
+![Rights box](docs/screenshots/rechte-dunkel.png)
+![Teams](docs/screenshots/teams-dunkel.png)
+![Team dialog](docs/screenshots/team-dialog-dunkel.png)
+
+**Public FAQ for your users**
+- Anonymous read-only landing page with search, most read posts, categories and an optional "create ticket" link
+- Named FAQ editors (people or teams); everything else stays behind the login
+
+![FAQ](docs/screenshots/faq-suche-dunkel.png)
+
+**Everyday use**
+- Dashboard of internal services with online status; personal, team and global shortcuts; "recently visited"
+- In-app tabs (pin, reorder, split view), light, dark and system theme per user, keyboard friendly dialogs
+- Administration for users, teams, trash, audit log and system status; backup and restore scripts, isolated test stack
+
+![Statistics](docs/screenshots/statistik-dunkel.png)
+![Audit log](docs/screenshots/protokoll-dunkel.png)
+![Users](docs/screenshots/benutzer-dunkel.png)
+
+Light theme (every user picks theirs in the profile menu):
+
+![Overview in light mode](docs/screenshots/uebersicht-hell.png)
+
+The screenshots show a throwaway instance with fictional data.
 
 ## Quickstart
 Requirements: a Linux server with Docker and the Compose plugin, 3 GB RAM or more (OnlyOffice needs about 750 MB), 10 GB disk.
@@ -45,8 +90,10 @@ created (copy it to `backend/services.json` before the first start) and becomes 
 Daily backup and trash purge: `scripts/install-timers.sh` (installs systemd timers for the current user and path).
 Everything else, in German: [docs/BETRIEB.md](docs/BETRIEB.md).
 
+Update to a new release: take a backup (`scripts/backup.sh`), pull the new version, `docker compose up -d --build`;
+database migrations run on start. Read the [Changelog](CHANGELOG.md) first.
+
 Tests: `docker compose run --rm -v "$PWD/backend":/app web pytest -q`.
-Operations (backup, restore, permissions, in German): [docs/BETRIEB.md](docs/BETRIEB.md).
 
 ## Demo
 `scripts/build-demo.sh` builds the frontend with a mocked API and fictional data into `demo-dist/`
@@ -59,8 +106,12 @@ AGPL-3.0 (draft, see [LICENSE](LICENSE)). Fonts: Inter, SIL Open Font License.
 
 ## Deutsch
 Findus ist ein selbst gehostetes internes Wiki und Dokumentationssystem für kleine IT-Teams: Ordnerbaum mit
-Wiki-Seiten, Dateien mit Versionen, Office-Dokumente im Browser (OnlyOffice), Schaubilder (draw.io) und eine
-Netzwerkkarte mit Live-Status. Alles läuft auf dem eigenen Server, ohne externe Dienste.
+Wiki-Seiten, Dateien mit Versionen, Office-Dokumente im Browser (OnlyOffice), Schaubilder (draw.io), Rack- und
+Netzwerkkarten mit Live-Status, Teams mit eigenen Wissensbereichen und Rechten sowie ein öffentliches FAQ für Anwender.
+Alles läuft auf dem eigenen Server, ohne externe Dienste.
+
+**Aktuelle Version: <!--v-->0.6.0<!--/v-->** – was neu ist, steht im [Changelog](CHANGELOG.md) und bei den [Releases](https://github.com/Fe4ar/Findus/releases).
+Die Bilder oben zeigen eine Testinstanz mit erfundenen Daten, hier im dunklen Design; das helle Design gibt es zusätzlich.
 
 **Schnellstart:** `.env.example` nach `.env` kopieren und Secrets setzen, `docker compose up -d --build`,
 `scripts/createsuperuser.sh` (ohne Rückfrage: `DJANGO_SUPERUSER_PASSWORD=… scripts/createsuperuser.sh <name>`). Der erste Start dauert

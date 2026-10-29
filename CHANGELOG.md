@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes, newest first. Versions follow [SemVer](https://semver.org).
+All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
 ## [0.6.0] - 2026-10-29
 
@@ -69,6 +69,40 @@ Stable release of 0.5.0-rc1 (same code, now running in production).
 
 ### Changed
 - Map code split into `frontend/src/karte/` modules
+
+### Fixed
+- restore.sh recreates the database instead of `pg_restore --clean`
+
+## [0.4.0] - 2026-10-25
+
+Internal milestone; published as part of 0.5.0-rc1 and 0.5.0.
+
+### Added
+- Map editor: rack device types with front graphics, snapping into rack units with collision check, palette
+- Device detail panel and modal, undo/redo, copy/paste, multi-select, search inside maps, zoom and panning
+
+### Changed
+- Map code split into `frontend/src/karte/` modules
+
+## [0.3.0] - 2026-10-25
+
+Internal milestone; published as part of 0.5.0-rc1 and 0.5.0.
+
+### Added
+- Profile menu with round initials avatar: theme switch, settings dialog, links to administration and audit log
+- Areas in the network tab above folders and maps, rights box on network areas and folders
+- Editor toolbar with own inline SVG icons (light and dark)
+
+## [0.2.0] - 2026-10-25
+
+Internal milestone; published as part of 0.5.0-rc1 and 0.5.0.
+
+### Added
+- Permissions: group rights per node with inheritance, public area with anonymous read-only view, publish right, audit log
+- Rights box per area and folder with public switch
+- Theme (light, dark, system) saved per user account
+- In-app tabs with keep-alive panes, pin, reorder, split view and unsaved-change marks
+- Own dialogs and toasts instead of the browser's prompt, confirm and alert
 
 ### Fixed
 - restore.sh recreates the database instead of `pg_restore --clean`

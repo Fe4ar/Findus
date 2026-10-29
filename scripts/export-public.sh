@@ -22,6 +22,9 @@ git -C "$out" rev-parse -q --verify "refs/tags/v$ver" >/dev/null && die "v$ver a
 find "$out" -mindepth 1 -maxdepth 1 ! -name .git ! -name CHANGELOG.md -exec rm -rf {} +
 git -C "$src" archive "$ref" | tar -x -C "$out"
 sed -i -E "0,/\"version\": \"[^\"]*\"/s//\"version\": \"$ver\"/" "$out/frontend/package.json"
+# README shows the version between <!--v--> markers
+sed -i -E "s|(badge/version-).*(-orange)|\\1${ver//-/--}\\2|" "$out/README.md"  # shields.io escapes - as --
+sed -i -E "s|(<!--v-->)[^<]*(<!--/v-->)|\\1$ver\\2|g" "$out/README.md"
 log=$out/CHANGELOG.md
 [[ -f $log ]] || printf "# Changelog\n\nAll notable changes, newest first. Versions follow [SemVer](https://semver.org).\n" > "$log"
 { sed -n "1,/semver\.org/p" "$log"; printf "\n## [%s] - %s\n\n" "$ver" "$(date +%F)"; cat "$notes"
