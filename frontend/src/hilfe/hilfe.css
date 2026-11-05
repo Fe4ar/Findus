@@ -1,0 +1,17 @@
+/* Help portal (src/hilfe/main.tsx): slim page on top of the shared design tokens, no sidebar, no tabs. */
+.hilfe { min-height: 100vh; background: var(--bg); color: var(--fg); }
+.hilfe-bar { display: flex; align-items: center; padding: var(--space-3) var(--space-5); border-bottom: 1px solid var(--border); background: var(--surface); }
+.hilfe-bar a { display: inline-flex; align-items: center; gap: var(--space-2); font-weight: 600; font-size: 1.05rem; color: var(--fg); text-decoration: none; }
+.hilfe main { max-width: 60rem; margin: 0 auto; padding: var(--space-6) var(--space-4) calc(var(--space-6) * 2); }
+.hilfe-hero { padding-top: var(--space-6); }
+.hilfe-article { max-width: 46rem; margin: 0 auto; }
+.hilfe-crumbs { color: var(--muted); font-size: 0.9rem; }
+.hilfe-article .prose { margin: var(--space-4) 0; }
+.hilfe-article img { max-width: 100%; height: auto; }
+.hilfe [data-drawio] { display: none; }
+
+.hilfe-ticket { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; margin: var(--space-5) auto; max-width: 46rem;
+  padding: var(--space-4) var(--space-5); background: var(--accent-soft); border: 1px solid var(--accent); border-radius: var(--radius-lg); }
+.hilfe-ticket strong { font-size: 1.05rem; }
+.hilfe-ticket p { margin: 0.2rem 0 0; }
+.hilfe-ticket .button { white-space: nowrap; text-decoration: none; }

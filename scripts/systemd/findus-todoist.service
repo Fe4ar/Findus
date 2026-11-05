@@ -1,0 +1,10 @@
+[Unit]
+Description=Findus: sync connected Todoist accounts
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=@USER@
+WorkingDirectory=@DIR@
+ExecStart=/usr/bin/docker compose exec -T web python manage.py todoist_sync

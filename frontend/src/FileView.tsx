@@ -3,6 +3,7 @@ import { api, ApiError, formatSize, NodeDetail } from "./api";
 import { OnlyOffice, isOffice } from "./OnlyOffice";
 import { DrawioView } from "./Drawio";
 import { ask, notify } from "./Dialog";
+import { Collabora, ModeSwitch, useCollabora } from "./Office";
 
 export async function uploadFile(parent: string, file: File) {
   const form = new FormData();
@@ -22,12 +23,14 @@ function TextPreview({ url }: { url: string }) {
 export function FileView({ node, onChanged }: { node: NodeDetail; onChanged: (n: NodeDetail) => void }) {
   const [mode, setMode] = useState<"view" | "edit">("view");
   const [busy, setBusy] = useState(false);
+  const collabora = useCollabora();
   const v = node.versions?.[0];
   if (!v) return <p className="muted">Keine Datei vorhanden.</p>;
 
   const name = v.original_name.toLowerCase();
   let preview;
   if (name.endsWith(".drawio")) preview = <DrawioView key={v.id} fileId={node.id} />;
+  else if (isOffice(name) && collabora) preview = <Collabora key={`${v.id}-${mode}`} node={node} mode={mode} />;
   else if (isOffice(name)) preview = <OnlyOffice key={`${v.id}-${mode}`} node={node} mode={mode} onClosed={() => {
     setMode("view");
     api<NodeDetail>(`/api/nodes/${node.id}`).then(onChanged);
@@ -42,10 +45,13 @@ export function FileView({ node, onChanged }: { node: NodeDetail; onChanged: (n:
       <header className="page-head">
         <h1>{node.title}</h1>
         <div className="actions">
-          {isOffice(name) && node.permissions.write && mode === "view" && (
-            <button className="primary" onClick={() => setMode("edit")}>Bearbeiten</button>
+          {isOffice(name) && (
+            <ModeSwitch mode={mode} canEdit={!!node.permissions.write} onChange={(m) => {
+              setMode(m);
+              // Collabora saves through WOPI on its own; reload the version list a moment after leaving edit mode.
+              if (m === "view" && collabora) setTimeout(() => api<NodeDetail>(`/api/nodes/${node.id}`).then(onChanged), 1500);
+            }} />
           )}
-          {isOffice(name) && mode === "edit" && <button onClick={() => setMode("view")}>Bearbeiten beenden</button>}
           <a className="button" href={`${v.url}?download=1`}>Herunterladen</a>
           {node.permissions.write && (
             <label className="button">

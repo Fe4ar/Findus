@@ -1,5 +1,6 @@
 """Page views, statistics for leaders/admins, the public FAQ landing data and the FAQ editors setting."""
 from datetime import timedelta
+from urllib.parse import urlsplit
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
@@ -18,19 +19,22 @@ User = get_user_model()
 RAW_DAYS = 90  # shortcut: raw views are deleted after 90 days (purge_trash); only PageCounter.total keeps the history
 
 
-@api_view(["POST"])
-def record_view(request, node_id):
-    node = node_or_404(request.user, node_id)
-    if node.kind != Node.PAGE:
-        return Response(status=204)
-    user = request.user if request.user.is_authenticated else None
-    # The same viewer reloading within a minute counts once.
+def count_view(node, user):
+    """Count a page view; the same viewer reloading within a minute counts once (user None = anonymous)."""
     recent = timezone.now() - timedelta(seconds=60)
     if not PageView.objects.filter(node=node, user=user, at__gte=recent).exists():
         with transaction.atomic():
             PageView.objects.create(node=node, user=user)
             c, _ = PageCounter.objects.get_or_create(node=node)
             PageCounter.objects.filter(pk=c.pk).update(total=F("total") + 1, last_viewed=timezone.now())
+
+
+@api_view(["POST"])
+def record_view(request, node_id):
+    node = node_or_404(request.user, node_id)
+    if node.kind != Node.PAGE:
+        return Response(status=204)
+    count_view(node, request.user if request.user.is_authenticated else None)
     return Response(status=204)
 
 
@@ -103,26 +107,41 @@ def stats(request):
 
 @api_view(["GET"])
 def faq(request):
-    """Landing data of the public FAQ: most read pages and the categories (top folders) with their pages."""
+    return Response(faq_data(request.user))
+
+
+def ticket_data():
+    """The ticket system link for the help portal and the FAQ (None when no address is set): the only setting the public API hands out."""
+    ts = FaqSettings.objects.filter(pk=1).first()
+    return {"url": ts.ticket_url, "label": ts.ticket_label} if ts and ts.ticket_url else None
+
+
+def valid_ticket_url(url):
+    """http(s) address with a host and no blanks; {q} is replaced by the search term in the browser."""
+    p = urlsplit(url)
+    return p.scheme in ("http", "https") and bool(p.netloc) and not any(c.isspace() for c in url)
+
+
+def faq_data(user):
+    """Landing data of the public FAQ for a user: most read and newest pages, the categories (top folders) with their pages."""
     areas = [a for a in Node.objects.filter(parent=None, kind=Node.AREA, space=Node.WIKI, is_public=True, deleted_at=None)
-             if can(request.user, READ, a)]
+             if can(user, READ, a)]
     pages = [p for p in Node.objects.filter(kind=Node.PAGE, deleted_at=None).select_related("parent")
-             if _root(p).pk in {a.pk for a in areas} and can(request.user, READ, p)]
+             if _root(p).pk in {a.pk for a in areas} and can(user, READ, p)]
     counts = {c.node_id: c.total for c in PageCounter.objects.filter(node__in=pages)}
     top = sorted(pages, key=lambda p: (-counts.get(p.pk, 0), p.title))[:6]
     cats = []
     for a in areas:
         for f in a.children.filter(deleted_at=None).order_by("position", "title"):
-            if f.kind == Node.FOLDER and can(request.user, READ, f):
+            if f.kind == Node.FOLDER and can(user, READ, f):
                 items = [p for p in pages if f.pk in {x.pk for x in [p, *p.ancestors()]}]
                 cats.append({"id": f.id, "title": f.title, "pages": [{"id": p.id, "title": p.title} for p in items[:8]], "more": max(0, len(items) - 8)})
         direct = [p for p in pages if p.parent_id == a.pk]
         if direct:
             cats.append({"id": a.id, "title": a.title, "pages": [{"id": p.id, "title": p.title} for p in direct[:8]], "more": max(0, len(direct) - 8)})
-    ts = FaqSettings.objects.filter(pk=1).first()
-    ticket = {"url": ts.ticket_url, "label": ts.ticket_label} if ts and ts.ticket_url else None
-    return Response({"ticket": ticket, "top": [{"id": p.id, "title": p.title, "views": counts.get(p.pk, 0), "category": p.parent.title if p.parent else ""} for p in top],
-                     "categories": cats})
+    newest = sorted(pages, key=lambda p: p.updated_at, reverse=True)[:6]
+    row = lambda p: {"id": p.id, "title": p.title, "views": counts.get(p.pk, 0), "category": p.parent.title if p.parent else ""}
+    return {"ticket": ticket_data(), "top": [row(p) for p in top], "recent": [row(p) for p in newest], "categories": cats}
 
 
 @api_view(["GET", "PUT"])
@@ -133,8 +152,8 @@ def faq_editors(request):
         d = request.data
         if "ticket_url" in d:
             url = str(d.get("ticket_url") or "").strip()
-            if url and not url.lower().startswith(("http://", "https://")):
-                raise ValidationError({"ticket_url": "Nur http:// oder https:// ist erlaubt."})
+            if url and not valid_ticket_url(url):
+                raise ValidationError({"ticket_url": "Bitte eine vollständige http://- oder https://-Adresse ohne Leerzeichen eintragen."})
             FaqSettings.objects.update_or_create(pk=1, defaults={"ticket_url": url[:500], "ticket_label": (str(d.get("ticket_label") or "").strip() or "Ticket erstellen")[:60]})
         users, teams = request.data.get("users") or [], request.data.get("teams") or []
         if not isinstance(users, list) or not isinstance(teams, list):

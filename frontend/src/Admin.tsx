@@ -198,7 +198,7 @@ function UserDialog({ user, groups, onClose, onSaved, go }: { go: (p: string) =>
 // --- Teams -------------------------------------------------------------------------------------------------
 
 interface Member { user: number; username: string; name: string; is_leader: boolean; can_write: boolean }
-interface TeamRow { id: number; name: string; area: string | null; trash_days: number; can_manage: boolean; can_lead: boolean; members: Member[] }
+interface TeamRow { id: number; name: string; area: string | null; trash_days: number; features: Record<string, boolean>; can_manage: boolean; can_lead: boolean; members: Member[] }
 
 function Teams({ me, go }: { me: Me; go: (p: string) => void }) {
   const [teams, setTeams] = useState<TeamRow[] | null>(null);
@@ -244,6 +244,14 @@ function Teams({ me, go }: { me: Me; go: (p: string) => void }) {
   );
 }
 
+const FEATURE_LABELS: Record<string, [string, string]> = {
+  wiki: ["Wiki", "Reiter Wiki, Seiten und Dateien der Teambereiche"],
+  faq: ["FAQ", "öffentliche FAQ-Bereiche lesen und bearbeiten"],
+  tasks: ["Aufgaben", "Reiter Aufgaben und „Meine Aufgaben“ auf der Übersicht"],
+  network: ["Netzwerk", "Reiter Netzwerk mit Karten und Netzplänen"],
+  export: ["Export", "Download und Export als PDF oder Markdown"],
+};
+
 function TeamDialog({ team, admin, onClose, onSaved, go }: { go: (p: string) => void; team: TeamRow | null; admin: boolean; onClose: () => void; onSaved: () => void }) {
   const [draft, setDraft] = useState(() => (team ? null : readTeamDraft()));
   const [name, setName] = useState(team?.name ?? draft?.name ?? "");
@@ -251,7 +259,8 @@ function TeamDialog({ team, admin, onClose, onSaved, go }: { go: (p: string) => 
   const [members, setMembers] = useState<Member[]>(team?.members ?? draft?.members ?? []);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [pick, setPick] = useState("");
-  const [tab, setTab] = useState<"members" | "folders">("members");
+  const [tab, setTab] = useState<"members" | "folders" | "features">("members");
+  const [features, setFeatures] = useState<Record<string, boolean>>(team?.features ?? {});
   useEffect(() => { if (admin) api<{ users: UserRow[] }>("/api/admin/users").then((r) => setUsers(r.users)); }, [admin]);
   useEffect(() => { if (!team) writeTeamDraft(name || members.length ? { name, members } : null); }, [team, name, members]);
   const discard = () => { setDraft(null); setName(""); setMembers([]); writeTeamDraft(null); };
@@ -262,7 +271,7 @@ function TeamDialog({ team, admin, onClose, onSaved, go }: { go: (p: string) => 
     const body: any = { members: members.map((m) => ({ user: m.user, is_leader: m.is_leader, can_write: m.can_write })), trash_days: days };
     try {
       if (!team) await api("/api/teams", { method: "POST", body: { name, members: body.members } });
-      else await api(`/api/teams/${team.id}`, { method: "PATCH", body: admin ? { ...body, name } : { members: body.members, trash_days: days } });
+      else await api(`/api/teams/${team.id}`, { method: "PATCH", body: admin ? { ...body, name, features } : { members: body.members, trash_days: days, features: { tasks: features.tasks !== false, network: features.network !== false } } });
       writeTeamDraft(null);
       onSaved();
     } catch (e) { err(e); }
@@ -279,9 +288,22 @@ function TeamDialog({ team, admin, onClose, onSaved, go }: { go: (p: string) => 
         <div className="tabs-inline" role="tablist">
           <button role="tab" aria-selected={tab === "members"} onClick={() => setTab("members")}>Mitglieder</button>
           <button role="tab" aria-selected={tab === "folders"} onClick={() => setTab("folders")}>Ordner</button>
+          <button role="tab" aria-selected={tab === "features"} onClick={() => setTab("features")}>Funktionen</button>
         </div>
       )}
-      {tab === "folders" && team ? <FolderTable mode="team" team={team.id} /> : <>
+      {tab === "features" && team ? (
+        <fieldset className="feature-list">
+          <legend>Funktionen für dieses Team</legend>
+          {Object.entries(FEATURE_LABELS).filter(([key]) => admin || key === "tasks" || key === "network").map(([key, [label, hint]]) => (
+            <label key={key} className="check-row">
+              <input type="checkbox" checked={features[key] !== false} onChange={(e) => setFeatures({ ...features, [key]: e.target.checked })} />
+              <span><strong>{label}</strong><span className="muted"> {hint}</span></span>
+            </label>
+          ))}
+          <p className="muted">{admin ? "" : "Als Teamleiter schaltest du Aufgaben und Netzwerk für das ganze Team. "}Wer in mehreren Teams ist, hat eine Funktion, sobald ein Team sie aktiviert. Admins haben immer alles. „Speichern“ wendet die Auswahl an.</p>
+          <div className="actions"><span className="spacer" /><button className="primary" onClick={save}>Speichern</button></div>
+        </fieldset>
+      ) : tab === "folders" && team ? <FolderTable mode="team" team={team.id} /> : <>
       <div className="form-grid">
         <label>Name<input value={name} disabled={!admin} onChange={(e) => setName(e.target.value)} /></label>
         {team && <label>Papierkorb (Tage)<input type="number" min={1} max={3650} value={days} onChange={(e) => setDays(+e.target.value)} /></label>}
@@ -472,7 +494,8 @@ function Audit() {
 
 function System() {
   const [d, setD] = useState<any>(null);
-  useEffect(() => { api("/api/admin/system").then(setD).catch(err); }, []);
+  const [integ, setInteg] = useState<{ todoist_allowed: boolean; todoist_links: number } | null>(null);
+  useEffect(() => { api("/api/admin/system").then(setD).catch(err); api<typeof integ>("/api/admin/integrations").then(setInteg).catch(err); }, []);
   if (!d) return <p className="muted">Lade …</p>;
   const labels: Record<string, string> = { users: "Benutzer", teams: "Teams", nodes: "Seiten, Ordner, Dateien", trashed: "im Papierkorb", files: "Dateiversionen", revisions: "Seitenversionen", audit: "Protokolleinträge" };
   return (
@@ -487,7 +510,16 @@ function System() {
         <dt>Django</dt><dd>{d.django}</dd><dt>Python</dt><dd>{d.python}</dd><dt>Papierkorb-Frist (Standard)</dt><dd>{d.default_trash_days} Tage</dd>
         <dt>Serverzeit</dt><dd>{formatDate(d.now)}</dd>
       </dl>
-      <p className="muted">Papierkorb leeren übernimmt der Timer <code>findus-purge.timer</code>; Datenbank und Dateien sichert <code>findus-backup.timer</code>.</p>
+      {integ && (
+        <fieldset className="feature-list">
+          <legend>Integrationen</legend>
+          <label className="check-row">
+            <input type="checkbox" checked={integ.todoist_allowed} onChange={(e) => api<typeof integ>("/api/admin/integrations", { method: "PUT", body: { todoist_allowed: e.target.checked } }).then(setInteg).catch(err)} />
+            <span><strong>Todoist-Integration erlauben</strong><span className="muted"> Benutzer können ihr Todoist-Konto verbinden (Team-Funktion „Aufgaben“ vorausgesetzt). {integ.todoist_links} verbunden. Ausgeschaltet ruht der Abgleich für alle.</span></span>
+          </label>
+        </fieldset>
+      )}
+      <p className="muted">Papierkorb leeren übernimmt der Timer <code>findus-purge.timer</code>; Datenbank und Dateien sichert <code>findus-backup.timer</code>; der Todoist-Abgleich läuft über <code>findus-todoist.timer</code> alle 5 Minuten.</p>
     </>
   );
 }
@@ -558,10 +590,10 @@ function FaqDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () => v
           <MultiSelect label="Ganze Teams (optional)" placeholder="Teams wählen …" options={d.all_teams} value={d.teams} onChange={(teams) => setD({ ...d, teams })} />
           <fieldset><legend>Ticketsystem</legend>
             <div className="form-grid">
-              <label>Ziel-Adresse (nur http/https)<input value={d.ticket_url} placeholder="https://tickets.example/neu?subject={q}" onChange={(e) => setD({ ...d, ticket_url: e.target.value })} /></label>
+              <label>Ticketsystem-Link (nur http/https)<input value={d.ticket_url} placeholder="https://tickets.example/neu?subject={q}" onChange={(e) => setD({ ...d, ticket_url: e.target.value })} /></label>
               <label>Text des Buttons<input value={d.ticket_label} onChange={(e) => setD({ ...d, ticket_label: e.target.value })} /></label>
             </div>
-            <p className="muted small">Steht <code>{"{q}"}</code> in der Adresse, wird der Suchbegriff dort eingesetzt. Ohne Adresse erscheint kein Ticket-Hinweis im FAQ.</p>
+            <p className="muted small">Steht <code>{"{q}"}</code> in der Adresse, wird der Suchbegriff dort eingesetzt. Ohne Adresse erscheint im Hilfe-Portal und im FAQ kein Ticket-Feld. Nur Administratoren ändern das.</p>
           </fieldset>
           <div className="actions"><span className="spacer" /><button onClick={() => (document.activeElement as HTMLElement)?.closest("dialog")?.close()}>Abbrechen</button><button className="primary" onClick={save}>Speichern</button></div>
         </>

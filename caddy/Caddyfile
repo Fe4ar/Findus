@@ -7,17 +7,40 @@
 	}
 }
 
+# Security headers. HSTS only helps on a trusted certificate (browsers ignore it on untrusted ones, so `tls internal` is harmless);
+# no "preload" on purpose. Default-only (?) headers keep what Django already sets on /api.
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		?X-Content-Type-Options nosniff
+		?Referrer-Policy same-origin
+	}
+}
+
+# Content-Security-Policy for the app and the help portal. The document servers (/office/, /collabora/, /drawio/) come with their own and
+# are framed by the app (frame-src 'self'). img-src allows http(s) because dashboard tiles show the favicon of the service itself.
+# CSP_HEADER=Content-Security-Policy-Report-Only in .env switches to report-only (violations only show in the browser console).
+(csp) {
+	header {$CSP_HEADER:Content-Security-Policy} "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http: https:; font-src 'self' data:; connect-src 'self'; frame-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+}
+
 # WIKI_ALIASES: further names, e.g. a public name behind a reverse proxy. OnlyOffice and draw.io live under paths of the
 # same host, so they work behind NPM without extra ports, hosts or certificates.
 {$WIKI_HOST} {$WIKI_ALIASES} {
 	tls internal
+	import security_headers
 
 	# Internal OnlyOffice endpoints are reachable only inside the compose network.
 	handle /internal/* {
 		respond 404
 	}
 
+	# The editor runs in the user's browser, so /office/ cannot be internal-only; it is open to signed-in Findus sessions only
+	# (Findus' own calls to OnlyOffice use the compose network and never pass here). Anonymous visitors get 401.
 	handle_path /office/* {
+		forward_auth web:8000 {
+			uri /api/auth/gate
+		}
 		reverse_proxy onlyoffice:80 {
 			# OnlyOffice builds its URLs from this; the prefix makes them point back under /office/.
 			header_up X-Forwarded-Host {hostport}/office
@@ -25,7 +48,15 @@
 	}
 
 	# draw.io may only talk to itself and be framed only by Findus: no calls to diagrams.net, Google Fonts or plugins.
+	# The sandboxed frame sends no session cookie with its requests, so this one cannot sit behind the sign-in gate; instead only
+	# the static editor is served: no server-side servlets (export, proxy, services) and only read methods.
 	handle_path /drawio/* {
+		@drawio_blocked {
+			path /service /service/* /proxy /proxy/* /export /export/* /convert /convert/*
+		}
+		respond @drawio_blocked 404
+		@drawio_write not method GET HEAD OPTIONS
+		respond @drawio_write 405
 		header {
 			-X-Frame-Options
 			# The frame is sandboxed (origin "null"); draw.io loads its own static files via XHR and needs CORS for that.
@@ -35,14 +66,59 @@
 		reverse_proxy drawio:8080
 	}
 
-	@django path /api/* /admin /admin/* /media-dl/* /static/*
+	# Collabora Online (WOPI client); same origin as Findus, so no mixed content and only Findus' certificate is trusted.
+	handle /collabora/* {
+		reverse_proxy {$COLLABORA_UPSTREAM}
+	}
+
+	# Help portal for people without an account; the same files are served on the portal host below.
+	handle /hilfe/* {
+		import csp
+		root * /srv
+		file_server
+	}
+
+	@django path /api/* /wopi/* /admin /admin/* /media-dl/* /static/*
 	handle @django {
 		reverse_proxy web:8000
 	}
 
 	handle {
+		import csp
 		root * /srv
 		try_files {path} /index.html
 		file_server
+	}
+}
+
+# Help portal host (PUBLIC_HOST, e.g. hilfe.example.org): only the portal and its read-only API, nothing of the app.
+# Without PUBLIC_HOST this block answers to a name that does not exist; the portal still works under /hilfe/ on the main host.
+{$PUBLIC_HOST} {
+	tls internal
+
+	import security_headers
+	import csp
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		X-Frame-Options DENY
+	}
+
+	@root path /
+	redir @root /hilfe/ 302
+
+	@portal path /hilfe/* /assets/* /fonts/* /findus.svg /theme.js
+	handle @portal {
+		root * /srv
+		file_server
+	}
+
+	@api path /api/public/* /media-dl/*
+	handle @api {
+		reverse_proxy web:8000
+	}
+
+	handle {
+		respond 404
 	}
 }

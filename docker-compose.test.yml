@@ -40,6 +40,7 @@ services:
     environment:
       WIKI_HOST: ${WIKI_HOST:-localhost}
       WIKI_ALIASES: ""
+      PUBLIC_HOST: ${PUBLIC_HOST:-hilfe.invalid}
     ports:
       - "9443:443"
     depends_on:

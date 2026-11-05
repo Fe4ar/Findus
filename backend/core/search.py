@@ -102,9 +102,14 @@ def _visible(user, node):
 
 @api_view(["GET"])
 def search(request):
-    query = to_query(request.query_params.get("q", ""))
+    return Response(run(request.user, request.query_params.get("q", ""), request.query_params.get("faq") == "1"))
+
+
+def run(user, text, faq_only=False):
+    """Hits (max. 30) for a search text, only nodes the user may read; faq_only = the public FAQ's search box."""
+    query = to_query(text)
     if query is None:
-        return Response([])
+        return []
     qs = (Node.objects.filter(deleted_at=None, search_vector=query)
           .annotate(rank=SearchRank(F("search_vector"), query),
                     snippet=SearchHeadline("search_text", query, config="german", start_sel=HIT_START,
@@ -113,9 +118,8 @@ def search(request):
           .select_related("parent")
           .order_by("-rank", "title")[:100])
     hits = []
-    faq_only = request.query_params.get("faq") == "1"  # the public FAQ's search box: only public content
     for n in qs:
-        if not _visible(request.user, n) or (faq_only and not is_public(n)):
+        if not _visible(user, n) or (faq_only and not is_public(n)):
             continue
         hits.append({"id": n.id, "kind": n.kind, "title": n.title,
                      "path": " / ".join(a.title for a in n.ancestors()),
@@ -123,4 +127,4 @@ def search(request):
                      "snippet": n.snippet if n.search_text else ""})
         if len(hits) == 30:
             break
-    return Response(hits)
+    return hits

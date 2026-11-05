@@ -9,7 +9,13 @@ DEBUG = os.environ.get("DJANGO_DEBUG") == "1"
 WIKI_HOST = os.environ.get("WIKI_HOST", "localhost")
 # Further names Findus answers to, e.g. a public name behind a reverse proxy.
 WIKI_ALIASES = os.environ.get("WIKI_ALIASES", "").replace(",", " ").split()
-WIKI_HOSTS = [WIKI_HOST, *WIKI_ALIASES]
+# Own host name of the logged-out help portal (/hilfe), e.g. hilfe.example.org; only /hilfe and /api/public are served there.
+PUBLIC_HOST = os.environ.get("PUBLIC_HOST", "").strip()
+# Todoist tokens are stored encrypted: INTEGRATION_KEY is an optional Fernet key, otherwise one is derived from SECRET_KEY.
+INTEGRATION_KEY = os.environ.get("INTEGRATION_KEY", "").strip()
+# Address of Findus in links that leave it (e.g. from a Todoist task back to the Findus task).
+FINDUS_URL = os.environ.get("FINDUS_URL", "").strip().rstrip("/") or f"https://{(os.environ.get('WIKI_ALIASES', '').replace(',', ' ').split() or [os.environ.get('WIKI_HOST', 'localhost')])[0]}"
+WIKI_HOSTS = [WIKI_HOST, *WIKI_ALIASES, *([PUBLIC_HOST] if PUBLIC_HOST else [])]
 # "web" is the compose service name OnlyOffice uses for internal callbacks.
 ALLOWED_HOSTS = [*WIKI_HOSTS, "web", "localhost"]
 CSRF_TRUSTED_ORIGINS = [f"https://{h}" for h in WIKI_HOSTS]
@@ -84,6 +90,9 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", BASE_DIR / "media"))
 ONLYOFFICE_JWT_SECRET = os.environ.get("ONLYOFFICE_JWT_SECRET", "")
 MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "200"))
+# Collabora Online (host:port reachable from this container); empty = Office files open in OnlyOffice only.
+COLLABORA_UPSTREAM = os.environ.get("COLLABORA_UPSTREAM", "")
+IMPORT_MAX_FILES_PER_HOUR = int(os.environ.get("IMPORT_MAX_FILES_PER_HOUR", "2000"))
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
 
@@ -92,5 +101,6 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.SessionAuthentication"],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.AllowAny"],
+    "DEFAULT_THROTTLE_RATES": {"public": "120/min"},
     "UNAUTHENTICATED_USER": "django.contrib.auth.models.AnonymousUser",
 }

@@ -2,6 +2,30 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.7.0] - 2026-11-05
+
+### Added
+- Tasks: personal task list with sections (create, rename, delete, reorder), drag & drop between and inside sections with a menu and arrow-button fallback, tasks for teammates, private tasks, "My tasks" on the overview
+- Todoist: every user can connect a personal Todoist project (API token stored encrypted, never returned); two-way sync every five minutes, field-wise merge, history per task, global switch for administrators
+- Functions per team (wiki, FAQ, tasks, network, export) can be switched on and off; team leaders manage their own team's functions
+- Navigation: one tab per team plus "All users", tabs fold into a "More" menu, users without a team only get the overview and the FAQ
+- Help portal for people without an account (own entry point `/hilfe`, optional own host `PUBLIC_HOST`, read-only anonymous API), ticket card with a link to your ticket system, "recently viewed" list
+- FAQ editors: named people or teams may edit and publish in the public area
+- Collabora Online as an optional editor for Office files (WOPI, `COLLABORA_UPSTREAM`); import and export of whole folders (Markdown ZIP with attachments)
+- Login protection: failed logins are counted per user name and per address, progressive lock (30 s up to 15 min, HTTP 429), audit entries `login_failed` and `login_locked`
+- `/api/health` reports the version; new `CSP_HEADER` setting (e.g. `Content-Security-Policy-Report-Only`)
+
+### Changed
+- Overview is a page of its own with each section in a box
+- Caddy sends HSTS, `nosniff`, a referrer policy and a strict Content-Security-Policy; `/office/` is reachable for signed-in sessions only, `/drawio/` serves only the static editor (no servlets, read methods only)
+- Migrations 0016–0021 (functions per team, tasks, sections, Todoist, login lock) run on start; take a backup first
+
+### Removed
+- `/api/board` (the job board of the overview) is no longer part of the public repository; it was an internal feature and moves into a private extension
+
+### Fixed
+- Scrolling over an embedded document (Collabora, PDF) no longer scrolls the page behind it
+
 ## [0.6.0] - 2026-10-29
 
 ### Added

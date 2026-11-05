@@ -16,6 +16,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.response import Response
 
 from . import audit, rights, teams
+from .features import FEATURES
 from .models import AuditLog, FileVersion, Node, NodePermission, PageRevision, Team, TeamMember, UserSettings
 from .permissions import WRITE, _chain, can, governing, is_admin, is_public
 from .views import is_uuid, user_name
@@ -115,12 +116,17 @@ def user_edit(request, user_id):
     return Response(user_data(u))
 
 
+# Functions a team leader may switch for the team; the rest stays with the admins.
+LEADER_FEATURES = {"tasks", "network"}
+
+
 # --- teams ----------------------------------------------------------------------------------------------------
 
 def team_data(team, viewer):
     admin = is_admin(viewer)
     leader = admin or team.members.filter(user=viewer, is_leader=True).exists()
     return {"id": team.id, "name": team.name, "area": team.area_id, "trash_days": team.trash_days,
+            "features": {k: k not in team.disabled_features for k in FEATURES},
             "can_manage": admin, "can_lead": leader,
             "members": [{"user": m.user_id, "username": m.user.username, "name": user_name(m.user),
                          "is_leader": m.is_leader, "can_write": m.is_leader or m.can_write}
@@ -177,6 +183,15 @@ def team_edit(request, team_id):
                 raise ValidationError({"trash_days": "1 bis 3650 Tage."})
             changed["trash_days"] = [team.trash_days, days]
             team.trash_days = days
+        if "features" in d:
+            f = d["features"]
+            if not isinstance(f, dict) or set(f) - set(FEATURES):
+                raise ValidationError({"features": "Erlaubt sind " + ", ".join(FEATURES) + "."})
+            if not admin and set(f) - LEADER_FEATURES:
+                raise PermissionDenied("Teamleiter dürfen nur Aufgaben und Netzwerk ein- oder ausschalten.")
+            off = [k for k in FEATURES if not f.get(k, k not in team.disabled_features)]
+            changed["features"] = {FEATURES[k]: k not in off for k in FEATURES}
+            team.disabled_features = off
         if admin and "name" in d:
             name = str(d["name"]).strip()[:100]
             if not name or Team.objects.filter(name__iexact=name).exclude(pk=team.pk).exists():

@@ -1,5 +1,6 @@
 import { KeyboardEvent, useEffect, useRef, useState } from "react";
 import { Me, Theme } from "./api";
+import { Integrations } from "./Integrations";
 import { adminAllowed } from "./Admin";
 
 export const THEMES: [Theme, string, string][] = [["light", "☀️", "Hell"], ["dark", "🌙", "Dunkel"], ["auto", "🖥️", "Automatisch"]];
@@ -35,6 +36,7 @@ interface Props {
 export function ProfileMenu({ me, theme, onTheme, onLogout }: Props) {
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState(false);
+  const [integrations, setIntegrations] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const name = me.name || me.username || "";
@@ -92,11 +94,15 @@ export function ProfileMenu({ me, theme, onTheme, onLogout }: Props) {
           <ThemeSwitch theme={theme} onTheme={onTheme} role="menuitemradio" />
           <hr />
           <button role="menuitem" tabIndex={-1} onClick={() => { close(false); setSettings(true); }}>Einstellungen</button>
+          {me.todoist && me.features?.includes("tasks") && (
+            <button role="menuitem" tabIndex={-1} onClick={() => { close(false); setIntegrations(true); }}>Integrationen</button>
+          )}
           {adminAllowed(me) && link("/verwaltung", "Verwaltung")}
           <hr />
           <button role="menuitem" tabIndex={-1} onClick={() => { close(false); onLogout(); }}>Abmelden</button>
         </div>
       )}
+      {integrations && <Integrations onClose={() => { setIntegrations(false); button.current?.focus(); }} />}
       {settings && <Settings me={me} theme={theme} onTheme={onTheme} onClose={() => { setSettings(false); button.current?.focus(); }} />}
     </div>
   );

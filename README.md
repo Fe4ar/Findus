@@ -1,6 +1,6 @@
 # Findus
 
-[![Version](https://img.shields.io/badge/version-0.6.0-orange)](https://github.com/Fe4ar/Findus/releases/latest)
+[![Version](https://img.shields.io/badge/version-0.7.0-orange)](https://github.com/Fe4ar/Findus/releases/latest)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 
 **English** · [Deutsch](#deutsch)
@@ -12,10 +12,10 @@ with Docker; nothing calls external services.
 
 > **Status:** private preview. Try the [demo](#demo) (static, fictional data, no backend).
 
-## Current version: <!--v-->0.6.0<!--/v--> · [Changelog](CHANGELOG.md)
+## Current version: <!--v-->0.7.0<!--/v--> · [Changelog](CHANGELOG.md)
 
 The latest stable release is shown in the badge above and on the [Releases](https://github.com/Fe4ar/Findus/releases) page;
-every release lists what changed in the [Changelog](CHANGELOG.md). Work on 0.7 is in testing and not released yet.
+every release lists what changed in the [Changelog](CHANGELOG.md).
 
 ![Overview in dark mode](docs/screenshots/uebersicht-dunkel.png)
 
@@ -24,7 +24,8 @@ every release lists what changed in the [Changelog](CHANGELOG.md). Work on 0.7 i
 **Knowledge base**
 - Folder tree with areas, folders, pages and files; drag & drop, drafts and publishing, visibility badges in the tree
 - Page editor (TipTap) with tables, code blocks, images and embedded draw.io diagrams; full version history with diff and restore
-- Files with versions; Office files open and save in OnlyOffice, `.drawio` files in a self-hosted draw.io
+- Files with versions; Office files open and save in Collabora Online (optional) or OnlyOffice, `.drawio` files in a self-hosted draw.io
+- Import and export of whole folders (Markdown ZIP with attachments)
 - Full-text search (PostgreSQL, German stemming) over pages and documents; export of pages and folders as PDF or Markdown
 
 ![Wiki page](docs/screenshots/wiki-seite-dunkel.png)
@@ -39,7 +40,9 @@ every release lists what changed in the [Changelog](CHANGELOG.md). Work on 0.7 i
 **Teams and permissions**
 - Teams with their own knowledge area, members, leaders and a read or read/write right per member
 - Permissions per group with inheritance down the tree, per-user download/export right, audit log
+- Functions per team (wiki, FAQ, tasks, network, export) can be switched on and off; team leaders manage their own
 - Trash per team with retention and a purge timer; page view counter and statistics
+- Login lock after repeated failures (per user and address), HSTS and a strict Content-Security-Policy, document servers only for signed-in users
 
 ![Rights box](docs/screenshots/rechte-dunkel.png)
 ![Teams](docs/screenshots/teams-dunkel.png)
@@ -48,10 +51,12 @@ every release lists what changed in the [Changelog](CHANGELOG.md). Work on 0.7 i
 **Public FAQ for your users**
 - Anonymous read-only landing page with search, most read posts, categories and an optional "create ticket" link
 - Named FAQ editors (people or teams); everything else stays behind the login
+- Optional separate help portal host for people without an account (only the FAQ and its read-only API are served there)
 
 ![FAQ](docs/screenshots/faq-suche-dunkel.png)
 
 **Everyday use**
+- Task list per user with sections, drag & drop and a menu fallback, tasks for teammates, optional two-way sync with a personal Todoist project (API token stored encrypted)
 - Dashboard of internal services with online status; personal, team and global shortcuts; "recently visited"
 - In-app tabs (pin, reorder, split view), light, dark and system theme per user, keyboard friendly dialogs
 - Administration for users, teams, trash, audit log and system status; backup and restore scripts, isolated test stack
@@ -110,7 +115,7 @@ Wiki-Seiten, Dateien mit Versionen, Office-Dokumente im Browser (OnlyOffice), Sc
 Netzwerkkarten mit Live-Status, Teams mit eigenen Wissensbereichen und Rechten sowie ein öffentliches FAQ für Anwender.
 Alles läuft auf dem eigenen Server, ohne externe Dienste.
 
-**Aktuelle Version: <!--v-->0.6.0<!--/v-->** – was neu ist, steht im [Changelog](CHANGELOG.md) und bei den [Releases](https://github.com/Fe4ar/Findus/releases).
+**Aktuelle Version: <!--v-->0.7.0<!--/v-->** – was neu ist, steht im [Changelog](CHANGELOG.md) und bei den [Releases](https://github.com/Fe4ar/Findus/releases).
 Die Bilder oben zeigen eine Testinstanz mit erfundenen Daten, hier im dunklen Design; das helle Design gibt es zusätzlich.
 
 **Schnellstart:** `.env.example` nach `.env` kopieren und Secrets setzen, `docker compose up -d --build`,

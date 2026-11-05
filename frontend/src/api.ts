@@ -52,6 +52,10 @@ export interface Me {
   can_overview?: boolean;
   can_create_area?: boolean;
   can_download?: boolean;
+  collabora?: boolean;
+  nav?: { teams: { id: number; name: string; area: string; write: boolean }[]; other: boolean; public_areas: string[] };
+  todoist?: boolean; // the administration allows the Todoist integration
+  features?: string[]; // functions of the user's teams: wiki, faq, tasks, network, export
   teams?: { id: number; name: string; leader: boolean; can_write: boolean }[];
   theme?: Theme;
 }

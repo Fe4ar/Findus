@@ -1,33 +1,43 @@
+import { extensions, homeExtension } from "./extensions";
 import { StrictMode, useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { api, ApiError, Me, Theme } from "./api";
+import { api, ApiError, Me, NodeDetail, Theme } from "./api";
 import { Tree } from "./Tree";
 import { confirmDialog, DialogHost } from "./Dialog";
 import { NodeView } from "./NodeView";
 import { Dashboard, Recent } from "./Dashboard";
 import { Admin, AdminNav } from "./Admin";
 import { Faq } from "./Faq";
-import { Tasks } from "./Tasks";
+import { TaskBoard } from "./TaskBoard";
 import { NetView } from "./Karte";
 import { Search } from "./Search";
 import {
   currentPath, DocTab, loadTabs, MAX_TABS, newTabId, nodeIdOf, pinnedFirst, saveTabs, TabBar, TabContext, TabState, wantsNewTab,
 } from "./Tabs";
-import { ProfileMenu, ThemeSwitch } from "./ProfileMenu";
+import { ProfileMenu } from "./ProfileMenu";
+import { NavTab, TabNav } from "./TabNav";
 import "./styles.css";
 
-type Tab = "overview" | "wiki" | "map" | "admin";
-// Top-level tabs. A new tab adds an entry here and a case in the content switch in App.
-const TABS: { id: Tab; label: string; path: string }[] = [
-  { id: "overview", label: "Übersicht", path: "/" },
-  { id: "wiki", label: "Wiki", path: "/wiki" },
-  { id: "map", label: "Netzwerk", path: "/netzwerk" },
-];
+// Top-level tabs: "overview", "team-<id>" (one per team, its area), "wiki" (areas outside every team), "tasks", "map",
+// "faq" (Alle Anwender, the public areas) and "admin" (not in the bar).
+type Tab = string;
+const teamLabel = (name: string) => (/^team\b/i.test(name) ? name : `Team ${name}`);
 
-
-function currentId() {
-  return location.pathname.match(/^\/n\/([0-9a-f-]{36})/)?.[1] ?? null;
+/** The tab bar of a user: one tab per team (all teams for admins), the functions their teams have on, the FAQ. */
+function tabsFor(me: Me): NavTab[] {
+  const on = (f: string) => !!me.features?.includes(f); // the server decides: users without a team or rights only have the FAQ
+  const nav = me.nav ?? { teams: [], other: false, public_areas: [] };
+  return [
+    { id: "overview", label: "Übersicht", path: "/" },
+    ...(on("wiki") ? nav.teams.map((t) => ({ id: `team-${t.id}`, label: teamLabel(t.name), path: `/n/${t.area}`, team: true })) : []),
+    ...(on("wiki") && nav.other ? [{ id: "wiki", label: "Wiki", path: "/wiki" }] : []),
+    ...(on("tasks") ? [{ id: "tasks", label: "Aufgaben", path: "/aufgaben" }] : []),
+    ...(on("network") ? [{ id: "map", label: "Netzwerk", path: "/netzwerk" }] : []),
+    ...(on("faq") ? [{ id: "faq", label: "Alle Anwender", path: "/anwender" }] : []),
+    ...extensions.filter((e) => e.show(me)).map((e) => ({ id: e.id, label: e.label, path: e.path })),
+  ];
 }
+
 
 // The tab was called "Karte" before; old /karte links keep working.
 if (location.pathname.startsWith("/karte")) {
@@ -36,17 +46,23 @@ if (location.pathname.startsWith("/karte")) {
 
 
 
-function sectionOf(path: string): Tab {
+/** Which top-level tab a path belongs to; a page belongs to the tab of its area (nodeTab, looked up by the caller). */
+function sectionOf(path: string, nodeTab: Tab | undefined): Tab {
   const p = path.split("?")[0];
-  if (p.startsWith("/n/") || p.startsWith("/wiki")) return "wiki";
+  if (p.startsWith("/n/")) return nodeTab ?? "wiki";
+  if (p.startsWith("/wiki")) return "wiki";
+  if (p.startsWith("/anwender")) return "faq";
   if (p.startsWith("/verwaltung")) return "admin";
+  if (p.startsWith("/aufgaben")) return "tasks";
+  const ext = extensions.find((e) => p.startsWith(e.path));
+  if (ext) return ext.id;
   return p.startsWith("/netzwerk") ? "map" : "overview";
 }
 
 // Paths a Ctrl/middle click may open as an in-app tab; everything else (downloads, admin, editors) stays native.
-const TAB_PATH = /^\/(?:$|n\/|wiki|netzwerk|karte|verwaltung)/;
+const TAB_PATH = /^\/(?:$|n\/|wiki|netzwerk|karte|verwaltung|aufgaben|anwender)/;
 
-function Login({ onLogin, onPublic }: { onLogin: (me: Me) => void; onPublic: () => void }) {
+function Login({ onLogin }: { onLogin: (me: Me) => void }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -75,7 +91,6 @@ function Login({ onLogin, onPublic }: { onLogin: (me: Me) => void; onPublic: () 
         </label>
         {error && <p className="error" role="alert">{error}</p>}
         <button type="submit" className="primary">Anmelden</button>
-        <p><a href="/wiki" onClick={(e) => { e.preventDefault(); onPublic(); }}>FAQ für Anwender ohne Anmeldung lesen</a></p>
       </form>
     </main>
   );
@@ -83,7 +98,11 @@ function Login({ onLogin, onPublic }: { onLogin: (me: Me) => void; onPublic: () 
 
 function App() {
   const [me, setMe] = useState<Me | null>(null);
-  const [state, setState] = useState<TabState>({ tabs: [{ id: "start", path: currentPath() }], active: "start", split: null });
+  const [state, setState] = useState<TabState>({ tabs: [{ id: "start", path: currentPath() === "/" ? "/wiki" : currentPath() }], active: "start", split: null });
+  // The overview is a page of its own, not a tab: opening it keeps every tab as it is.
+  const [home, setHome] = useState(() => currentPath() === "/");
+  const homeRef = useRef(home);
+  homeRef.current = home;
   const [dirty, setDirtyMap] = useState<Record<string, boolean>>({});
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
@@ -105,19 +124,40 @@ function App() {
     setTheme(t);
     if (me?.authenticated) api("/api/auth/settings", { method: "PUT", body: { theme: t } }).catch(() => {});
   };
-  // Logged out: login form first; shared links to pages (/n/<id>) open the public view directly.
-  const [publicView, setPublicView] = useState(!!currentId() || location.pathname.startsWith("/wiki"));
-
   const anon = !!me && !me.authenticated;
+  // Old shared FAQ links (/n/<id>): a published public page opens in the help portal, anything else asks for the login.
+  const [linkChecked, setLinkChecked] = useState(false);
+  useEffect(() => {
+    if (!anon) return;
+    const id = location.pathname.match(/^\/n\/([0-9a-f-]{36})/)?.[1];
+    if (!id) return setLinkChecked(true);
+    fetch(`/api/public/pages/${id}`, { credentials: "omit" })
+      .then((r) => (r.ok ? location.replace(`/hilfe/?p=${id}`) : setLinkChecked(true)))
+      .catch(() => setLinkChecked(true));
+  }, [anon]);
   const user = me?.authenticated ? me.username ?? "" : null;
   const activeTab = state.tabs.find((t) => t.id === state.active) ?? state.tabs[0];
-  const activePath = activeTab.path;
+  const activePath = home ? "/" : activeTab.path;
+  // The tab of the open page = the tab of its area; looked up once per page (the previous tab stays while it loads).
+  const [areaTab, setAreaTab] = useState<Record<string, Tab>>({});
+  const lastTab = useRef<Tab>("wiki");
+  const openId = nodeIdOf(activePath);
+  useEffect(() => {
+    if (!me?.authenticated || !openId || areaTab[openId]) return;
+    api<NodeDetail>(`/api/nodes/${openId}`).then((n) => {
+      const root = n.breadcrumb[0]?.id ?? n.id;
+      const team = me.nav?.teams.find((t) => t.area === root);
+      setAreaTab((m) => ({ ...m, [openId]: team ? `team-${team.id}` : me.nav?.public_areas.includes(root) ? "faq" : "wiki" }));
+    }).catch(() => undefined);
+  }, [me, openId, areaTab]);
 
   useEffect(() => {
     api<Me>("/api/auth/me").then(applyMe);
     // Back/forward: show that URL in its tab if one has it, otherwise in the active tab.
     const onPop = () => {
       const path = currentPath();
+      setHome(path === "/");
+      if (path === "/") return;
       setState((s) => {
         const hit = s.tabs.find((t) => t.path === path);
         return hit ? { ...s, active: hit.id } : { ...s, tabs: s.tabs.map((t) => (t.id === s.active ? { ...t, path } : t)) };
@@ -151,10 +191,21 @@ function App() {
   }, []);
 
   const goIn = useCallback((tabId: string, path: string) => {
+    if (path === "/") return setHome(true);
     setState((s) => ({ ...s, tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, path } : t)) }));
   }, []);
-  const go = useCallback((path: string) => setState((s) => ({ ...s, tabs: s.tabs.map((t) => (t.id === s.active ? { ...t, path } : t)) })), []);
+  const go = useCallback((path: string) => {
+    if (path === "/") return setHome(true);
+    const fromHome = homeRef.current;
+    setHome(false);
+    setState((s) => {
+      const hit = fromHome ? s.tabs.find((t) => t.path === path) : undefined; // coming back from the overview: reuse an open tab
+      return hit ? { ...s, active: hit.id } : { ...s, tabs: s.tabs.map((t) => (t.id === s.active ? { ...t, path } : t)) };
+    });
+  }, []);
   const openTab = useCallback((path: string, activate = false) => {
+    if (path === "/") return setHome(true);
+    if (activate) setHome(false);
     setState((s) => {
       const tab: DocTab = { id: newTabId(), path };
       let tabs = [...s.tabs, tab];
@@ -167,6 +218,7 @@ function App() {
     });
   }, []);
   const activate = useCallback((id: string) => {
+    setHome(false);
     // Activating the right half of a split view swaps the halves instead of ending the split.
     setState((s) => (s.active === id ? s : { ...s, active: id, split: s.split === id ? s.active : s.split }));
   }, []);
@@ -176,7 +228,7 @@ function App() {
     setState((s) => {
       const i = s.tabs.findIndex((t) => t.id === id);
       let tabs = s.tabs.filter((t) => t.id !== id);
-      if (!tabs.length) tabs = [{ id: newTabId(), path: "/" }];
+      if (!tabs.length) tabs = [{ id: newTabId(), path: "/wiki" }];
       const active = s.active === id ? tabs[Math.min(i, tabs.length - 1)].id : s.active;
       return { tabs, active, split: s.split === id || s.split === active ? null : s.split };
     });
@@ -223,44 +275,36 @@ function App() {
   const changed = useCallback(() => setTreeVersion((v) => v + 1), []);
 
   if (!me) return null;
-  if (anon && !publicView) return <Login onLogin={applyMe} onPublic={() => { setPublicView(true); go("/wiki"); }} />;
+  // Logged-out visitors get nothing but the login; the public FAQ lives in its own portal (/hilfe).
+  if (anon) return linkChecked ? <Login onLogin={applyMe} /> : null;
   // Anonymous visitors only get the wiki tree with the public areas, and a single view without the tab bar.
-  const section: Tab = anon ? "wiki" : sectionOf(activePath);
+  const section: Tab = sectionOf(activePath, openId ? areaTab[openId] ?? lastTab.current : undefined);
+  lastTab.current = section === "admin" || section === "overview" || section === "tasks" || section === "map" || extensions.some((e) => e.id === section) ? lastTab.current : section;
+  const tabs = tabsFor(me);
+  const team = me.nav?.teams.find((t) => `team-${t.id}` === section);
   const selectedId = nodeIdOf(activePath);
   const split = !anon && state.split && state.split !== state.active && state.tabs.some((t) => t.id === state.split) ? state.split : null;
   const shown = (t: DocTab) => t.id === state.active || t.id === split;
 
   return (
-    <div className={`${section === "overview" ? "layout full" : "layout"}${anon ? "" : " with-tabs"}`}>
+    <div className={`${section === "overview" ? "layout full" : "layout"}${anon || section === "overview" ? "" : " with-tabs"}`}>
       <header className="topbar">
         <a href="/" className="brand" onClick={(e) => { e.preventDefault(); go("/"); }}><img src="/findus.svg" alt="" className="logo" />Findus</a>
-        {!anon && <nav className="tabs" aria-label="Bereiche">
-          {TABS.map((t) => (
-            <a key={t.id} href={t.path} className="tab" aria-current={section === t.id ? "page" : undefined}
-              onClick={(e) => { e.preventDefault(); go(t.path); }}>{t.label}</a>
-          ))}
-        </nav>}
-        <span className="spacer" />
+        <TabNav tabs={tabs} section={section} go={go} />
         <Search onSelect={(id) => go(`/n/${id}`)} onOpenTab={anon ? undefined : (path) => openTab(path)} />
-        {anon ? (
-          <>
-            <ThemeSwitch theme={theme} onTheme={chooseTheme} />
-            <button className="primary" onClick={() => setPublicView(false)}>Anmelden</button>
-          </>
-        ) : (
-          <ProfileMenu me={me} theme={theme} onTheme={chooseTheme}
-            onLogout={async () => { await api("/api/auth/logout", { method: "POST" }); setMe({ authenticated: false }); }} />
-        )}
+        <ProfileMenu me={me} theme={theme} onTheme={chooseTheme}
+          onLogout={async () => { await api("/api/auth/logout", { method: "POST" }); setMe({ authenticated: false }); }} />
       </header>
-      {section === "wiki" && (
-        <nav className="sidebar" aria-label="Ordnerbaum">
-          <Tree selected={selectedId} onSelect={(id) => go(id ? `/n/${id}` : "/wiki")} version={treeVersion} onChanged={changed}
-            canCreateRoot={!!me.can_create_area} onOpenTab={anon ? undefined : (id) => openTab(`/n/${id}`)} user={user ?? ""} />
-          {!anon && (
-            <div className="sidebar-foot">
-              <a href="/verwaltung" onClick={(e) => { e.preventDefault(); dispatchEvent(new Event("findus-settings")); }}>Mein Konto</a> · <a href="/wiki" onClick={(e) => { e.preventDefault(); go("/wiki"); }}>Hilfe</a>
-            </div>
-          )}
+      {(section === "wiki" || section === "faq" || team) && (
+        <nav className="sidebar" aria-label={team ? teamLabel(team.name) : section === "faq" ? "Alle Anwender" : "Ordnerbaum"}>
+          <Tree key={section} selected={selectedId} version={treeVersion} onChanged={changed} user={user ?? ""} canExport={!!me.can_download}
+            onSelect={(id) => go(id ? `/n/${id}` : team ? `/n/${team.area}` : section === "faq" ? "/anwender" : "/wiki")}
+            rootId={team?.area} scope={section === "faq" ? "public" : section === "wiki" ? "other" : undefined}
+            canCreateRoot={team ? team.write : section === "faq" ? false : !!me.can_create_area}
+            onOpenTab={(id) => openTab(`/n/${id}`)} />
+          <div className="sidebar-foot">
+            <a href="/verwaltung" onClick={(e) => { e.preventDefault(); dispatchEvent(new Event("findus-settings")); }}>Mein Konto</a>
+          </div>
         </nav>
       )}
       {section === "map" && (
@@ -273,15 +317,18 @@ function App() {
         <nav className="sidebar" aria-label="Verwaltung"><AdminNav me={me} path={activePath} go={go} /></nav>
       )}
       <div className="workspace">
-        {!anon && (
+        {!anon && section !== "overview" && (
           <TabBar state={{ ...state, split }} dirty={dirty} version={treeVersion} onActivate={activate} onClose={closeTab}
-            onCloseOthers={closeOthers} onReorder={reorder} onPin={pin} onNew={() => openTab("/", true)}
+            onCloseOthers={closeOthers} onReorder={reorder} onPin={pin} onNew={() => openTab("/wiki", true)}
             onSplit={(id) => setState((s) => ({ ...s, split: id }))} />
         )}
       <main className={split ? "content split" : "content"}>
+        {home && !anon && (
+          <section className="tab-pane"><View path="/" anon={false} me={me} go={go} changed={changed} /></section>
+        )}
         {(anon ? [activeTab] : state.tabs).map((t) => (
           // Every open tab stays mounted (hidden) so editors, OnlyOffice and draw.io keep their state.
-          <section key={t.id} className="tab-pane" hidden={!shown(t)} style={{ order: t.id === state.active ? 0 : 1 }}
+          <section key={t.id} className="tab-pane" hidden={!shown(t) || home} style={{ order: t.id === state.active ? 0 : 1 }}
             aria-label={t.id === split ? "Rechte Hälfte" : undefined}
             onPointerDownCapture={() => { if (t.id !== state.active) activate(t.id); }}>
             <TabContext.Provider value={{ setDirty: dirtySetter(t.id) }}>
@@ -307,22 +354,31 @@ function View({ path, anon, me, go, changed }: { path: string; anon: boolean; me
     );
   }
   if (p.startsWith("/verwaltung") && !anon) return <Admin me={me} path={path} go={go} />;
+  const ext = extensions.find((e) => p.startsWith(e.path));
+  if (ext && !anon && ext.show(me)) return <>{ext.render()}</>;
+  if (p.startsWith("/aufgaben") && !anon) {
+    return me.features?.includes("tasks") ? <><h1>Aufgaben</h1><TaskBoard /></> : <p className="muted">Aufgaben sind für dein Team nicht aktiviert.</p>;
+  }
   if (p.startsWith("/n/") && id) return <NodeView key={id} id={id} onSelect={(nid) => go(nid ? `/n/${nid}` : "/wiki")} onChanged={changed} />;
-  if (anon && !id) return <Faq onSelect={(nid) => go(`/n/${nid}`)} />;
-  if (p.startsWith("/wiki") || anon) {
+  if (p.startsWith("/anwender")) return <Faq onSelect={(nid) => go(`/n/${nid}`)} />;
+  if (p.startsWith("/wiki")) {
     return (
       <>
         <h1>Wiki</h1>
-        <p className="muted">{anon ? "Links die öffentlichen Bereiche. Zum Bearbeiten bitte anmelden." : "Links den Ordnerbaum nutzen (Rechtsklick legt Neues an, Strg-Klick öffnet in einem neuen Tab)."}</p>
+        <p className="muted">Bereiche außerhalb der Teams. Links den Ordnerbaum nutzen (Rechtsklick legt Neues an, Strg-Klick öffnet in einem neuen Tab).</p>
       </>
     );
   }
+  const home = homeExtension(me);
   return (
     <>
       <h1>Übersicht</h1>
-      {me.can_overview && <><h2>Aktuelle Aufgaben</h2><Tasks /></>}
-      <Recent />
-      <Dashboard />
+      {home?.render()}
+      <div className="ov-grid">
+        {me.features?.includes("tasks") && <section className="ov-box"><h2>Meine Aufgaben</h2><TaskBoard compact go={go} /></section>}
+        <Recent />
+        <section className="ov-box ov-wide"><Dashboard /></section>
+      </div>
     </>
   );
 }

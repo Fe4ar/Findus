@@ -3,6 +3,7 @@ import { api, ApiError, Kind, NodeSummary } from "./api";
 import { wantsNewTab } from "./Tabs";
 import { ask, confirmDialog, notify } from "./Dialog";
 import { Icon } from "./Icons";
+import { ImportDialog } from "./Import";
 
 const EMOJI: Partial<Record<Kind, string>> = { file: "📎", map: "🗺️", link: "📐" };
 
@@ -49,11 +50,18 @@ interface TreeProps {
   canCreateRoot?: boolean;
   onOpenTab?: (id: string) => void; // Ctrl/middle click and "In neuem Tab öffnen"
   user?: string;
+  canExport?: boolean;
+  rootId?: string; // show the content of this area (a team's) instead of the list of areas
+  scope?: "public" | "other"; // list only the public areas ("Alle Anwender") or the areas outside every team
 }
 
-export function Tree({ selected, onSelect, version, onChanged, space = "wiki", canCreateRoot = true, onOpenTab, user = "" }: TreeProps) {
+export function Tree({ selected, onSelect, version, onChanged, space = "wiki", canCreateRoot = true, onOpenTab, user = "", canExport = false, rootId, scope }: TreeProps) {
   treeUser = user;
+  // With rootId the top level holds the area's folders and pages, so new items go into that area.
+  const rootNode = rootId ? ({ id: rootId, kind: "area" } as NodeSummary) : null;
+  const topKinds = rootId ? CHILD_KINDS[space] : ROOT_KINDS[space];
   const [menu, setMenu] = useState<Menu | null>(null);
+  const [importing, setImporting] = useState<NodeSummary | null>(null);
 
   useEffect(() => {
     const close = () => setMenu(null);
@@ -113,20 +121,26 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
         }
       }}
     >
-      <Branch parent={null} space={space} depth={0} selected={selected} onSelect={onSelect} version={version}
+      <Branch parent={rootId ?? null} scope={scope} space={space} depth={0} selected={selected} onSelect={onSelect} version={version}
         onMenu={setMenu} onMove={move} onOpenTab={onOpenTab} />
-      {canCreateRoot && ROOT_KINDS[space].map((k) => (
-        <button key={k} className="tree-add" onClick={() => create(k, null)}>+ {NEW_LABEL[k]}</button>
+      {canCreateRoot && topKinds.map((k) => (
+        <button key={k} className="tree-add" onClick={() => create(k, rootNode)}>+ {NEW_LABEL[k]}</button>
       ))}
       {m && (
         <ul className="menu" role="menu" style={{ left: m.x, top: m.y }} onClick={(e) => e.stopPropagation()}>
-          {!m.node && ROOT_KINDS[space].map((k) => (
-            <MenuItem key={k} label={NEW_LABEL[k]} onClick={() => { setMenu(null); create(k, null); }} />
+          {!m.node && topKinds.map((k) => (
+            <MenuItem key={k} label={NEW_LABEL[k]} onClick={() => { setMenu(null); create(k, rootNode); }} />
           ))}
           {m.node && onOpenTab && <MenuItem label="In neuem Tab öffnen" onClick={() => { setMenu(null); onOpenTab(m.node!.id); }} />}
           {m.node && m.node.writable !== false && isContainer(m.node.kind) && CHILD_KINDS[space].map((k) => (
             <MenuItem key={k} label={NEW_LABEL[k]} onClick={() => { setMenu(null); create(k, m.node); }} />
           ))}
+          {m.node && space === "wiki" && m.node.writable !== false && isContainer(m.node.kind) && (
+            <MenuItem label="Ordner importieren …" onClick={() => { setMenu(null); setImporting(m.node); }} />
+          )}
+          {m.node && space === "wiki" && canExport && isContainer(m.node.kind) && (
+            <MenuItem label="Ordner exportieren" onClick={() => { setMenu(null); exportFolder(m.node!); }} />
+          )}
           {m.node && m.node.writable !== false && (
             <>
               <MenuItem label="Umbenennen" onClick={async () => {
@@ -146,8 +160,22 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
           )}
         </ul>
       )}
+      {importing && <ImportDialog parent={importing.id} title={importing.title} onClose={() => setImporting(null)} onDone={onChanged} />}
     </div>
   );
+}
+
+async function exportFolder(node: NodeSummary) {
+  try {
+    const res = await fetch(`/api/nodes/${node.id}/export-originals`, { credentials: "same-origin" });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `Fehler ${res.status}`);
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement("a");
+    a.href = url; a.download = `${node.title}.zip`; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  } catch (e) {
+    notify(e instanceof Error ? e.message : "Export fehlgeschlagen.");
+  }
 }
 
 function MenuItem({ label, onClick, danger }: { label: string; onClick: () => void; danger?: boolean }) {
@@ -160,6 +188,7 @@ function MenuItem({ label, onClick, danger }: { label: string; onClick: () => vo
 
 interface BranchProps {
   parent: string | null;
+  scope?: "public" | "other";
   space?: Space;
   depth: number;
   selected: string | null;
@@ -170,18 +199,18 @@ interface BranchProps {
   onOpenTab?: (id: string) => void;
 }
 
-function Branch({ parent, space = "wiki", ...rest }: BranchProps) {
+function Branch({ parent, space = "wiki", scope, ...rest }: BranchProps) {
   const [items, setItems] = useState<NodeSummary[] | null>(null);
   useEffect(() => {
-    api<NodeSummary[]>(`/api/tree?${parent ? `parent=${parent}` : `space=${space}`}`).then(setItems).catch(() => setItems([]));
-  }, [parent, space, rest.version]);
+    api<NodeSummary[]>(`/api/tree?${parent ? `parent=${parent}` : `space=${space}${scope ? `&scope=${scope}` : ""}`}`).then(setItems).catch(() => setItems([]));
+  }, [parent, space, scope, rest.version]);
   if (!items) return <div className="tree-loading" style={{ paddingLeft: rest.depth * 16 + 8 }}>…</div>;
   return (
     <ul className="branch" role={rest.depth === 0 ? "tree" : "group"}>
       {items.map((n, i) => {
         // Top level of the wiki: small-caps headings, "Dokumentation" for the normal areas and one per team area.
         const group = (x: NodeSummary) => (x.team ? (/^team\b/i.test(x.team) ? x.team : `Team ${x.team}`) : x.vis?.kind === "public" ? "FAQ" : "Dokumentation");
-        const head = rest.depth === 0 && space === "wiki" && n.kind === "area" && (i === 0 || group(items[i - 1]) !== group(n)) ? group(n) : null;
+        const head = !scope && rest.depth === 0 && space === "wiki" && n.kind === "area" && (i === 0 || group(items[i - 1]) !== group(n)) ? group(n) : null;
         return (
           <Fragment key={n.id}>
             {head && <li className="tree-heading" role="presentation">{head}</li>}

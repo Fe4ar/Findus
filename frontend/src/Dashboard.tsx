@@ -175,7 +175,7 @@ export function Recent() {
   useEffect(() => { api<typeof items>("/api/recent").then(setItems).catch(() => setItems([])); }, []);
   if (!items?.length) return null;
   return (
-    <section className="recent">
+    <section className="recent ov-box">
       <h2>Zuletzt besucht</h2>
       <ul>
         {items.map((r) => (

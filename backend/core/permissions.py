@@ -73,14 +73,27 @@ def can(user, action, node=None):
         return False
     if user.is_superuser:
         return True
+    if node is not None:
+        from .features import enabled, feature_of
+        if feature_of(node) not in enabled(user):
+            return False  # the user's teams have this function (Wiki, FAQ, Netzwerk) switched off
     if action == READ and node is not None and is_public(node):
         return True
     actions = granted(user, node)
+    if node is not None and _chain(node)[-1].is_public and _faq_named(user):
+        actions = actions | {WRITE, PUBLISH}  # being named in the FAQ editors is itself the right to edit and publish there
     if action != READ and node is not None and _chain(node)[-1].is_public and not _faq_editor(user):
         return False  # the public FAQ is edited only by the people the admin named (when any are named)
     if action == READ and node is not None and node.status == node.DRAFT:
         return bool(actions & {WRITE, PUBLISH})
     return action in actions
+
+
+def _faq_named(user):
+    """True if FAQ editors are configured and the user is named (person, or member of a named team)."""
+    from django.db.models import Q
+    from .models import FaqEditor
+    return FaqEditor.objects.filter(Q(user=user) | Q(user=None, team__members__user=user)).exists()
 
 
 def _faq_editor(user):
@@ -102,7 +115,10 @@ def can_download(user):
     """Download/export right set by admins per user. Superusers always; anonymous visitors keep what public areas allow."""
     if user is None or not user.is_authenticated:
         return True
-    return user.is_superuser or is_admin(user) or getattr(getattr(user, "findus_settings", None), "can_download", True)
+    if user.is_superuser or is_admin(user):
+        return True
+    from .features import enabled
+    return "export" in enabled(user) and getattr(getattr(user, "findus_settings", None), "can_download", True)
 
 
 def is_public(node):

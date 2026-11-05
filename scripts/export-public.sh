@@ -21,6 +21,15 @@ git -C "$out" rev-parse -q --verify "refs/tags/v$ver" >/dev/null && die "v$ver a
 # Replace the whole tree with the exported one; CHANGELOG.md lives only in the public repo.
 find "$out" -mindepth 1 -maxdepth 1 ! -name .git ! -name CHANGELOG.md -exec rm -rf {} +
 git -C "$src" archive "$ref" | tar -x -C "$out"
+# Local-only parts (paths in .public-exclude, one per line) never reach the public repo.
+if [[ -f $out/.public-exclude ]]; then
+  while read -r p; do
+    [[ -z $p || $p == \#* ]] && continue
+    [[ $p == /* || $p == *..* ]] && die "bad path in .public-exclude: $p"
+    rm -rf -- "${out:?}/$p"
+  done < "$out/.public-exclude"
+  rm -f "$out/.public-exclude"
+fi
 sed -i -E "0,/\"version\": \"[^\"]*\"/s//\"version\": \"$ver\"/" "$out/frontend/package.json"
 # README shows the version between <!--v--> markers
 sed -i -E "s|(badge/version-).*(-orange)|\\1${ver//-/--}\\2|" "$out/README.md"  # shields.io escapes - as --

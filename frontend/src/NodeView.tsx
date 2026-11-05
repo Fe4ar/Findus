@@ -8,6 +8,7 @@ import { MapLinks } from "./Karte";
 import { useDirty } from "./Tabs";
 import { Editor } from "./Editor";
 import { FileView, uploadFile } from "./FileView";
+import { isOffice } from "./OnlyOffice";
 import { Rights } from "./Rights";
 import { DrawioView, EMPTY_DRAWIO } from "./Drawio";
 import { ask, confirmDialog, notify } from "./Dialog";
@@ -40,7 +41,7 @@ export function NodeView({ id, onSelect, onChanged }: Props) {
   };
 
   return (
-    <article className="node">
+    <article className={`node${node.kind === "file" && isOffice(node.versions?.[0]?.original_name.toLowerCase() ?? "") ? " wide-doc" : ""}`}>
       <nav className="breadcrumb" aria-label="Pfad">
         {node.breadcrumb.map((b) => (
           <span key={b.id}>

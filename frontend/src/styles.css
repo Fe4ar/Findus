@@ -162,6 +162,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 }
 .topbar {
   grid-column: 1 / -1;
+  min-width: 0; /* the grid track must not grow with the tabs; the tab bar folds into "Mehr" instead */
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -181,7 +182,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .who { font-size: 0.9rem; color: var(--muted); }
 .spacer { flex: 1; }
 .sidebar { border-right: 1px solid var(--border); background: var(--sidebar-bg); overflow: auto; overflow-x: clip; padding: var(--space-3) 0; }
-.content { overflow: auto; padding: var(--space-6) clamp(1rem, 4vw, 3rem); }
+.content { overflow: auto; scrollbar-gutter: stable; padding: var(--space-6) clamp(1rem, 4vw, 3rem); }
 .content > h1:first-child { margin-top: 0; }
 .empty { max-width: 40rem; }
 
@@ -378,15 +379,26 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 
 /* ---------- Top tabs (Übersicht, Wiki, Netzwerk) ---------- */
 .layout.full { grid-template-columns: 1fr; }
-.topbar .tabs { display: flex; gap: 0.15rem; margin: 0 0 0 var(--space-4); border: 0; padding: 0.2rem; background: var(--surface-2); border-radius: var(--radius); }
-.tab { padding: 0.3rem 0.9rem; border-radius: var(--radius-sm); color: var(--muted); text-decoration: none; font-weight: 500; font-size: 0.92rem; }
+.topbar .tabs { display: inline-flex; flex-wrap: nowrap; max-width: 100%; gap: 0.15rem; margin: 0; border: 0; padding: 0.2rem; background: var(--surface-2); border-radius: var(--radius); }
+.topbar .tabs-wrap { position: relative; flex: 1 1 0; min-width: 0; margin-left: var(--space-4); }
+.topbar .tabs-probe { position: absolute; left: 0; top: 0; max-width: none; visibility: hidden; pointer-events: none; }
+.tabs-probe .tab { flex: none; overflow: visible; }
+.tabs-more { flex: none; }
+.tabs-more { position: relative; display: inline-flex; }
+.topbar .tabs-more > button.tab { border: 0; background: none; box-shadow: none; font: inherit; font-weight: 500; font-size: 0.92rem; padding: 0.3rem 0.9rem; cursor: pointer; }
+.tabs-more-menu { position: absolute; right: 0; max-width: calc(100vw - 2rem); top: calc(100% + var(--space-2)); z-index: 15; min-width: 12rem; display: grid; gap: 0.1rem; padding: var(--space-2); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); }
+.tabs-more-menu { width: max-content; }
+.tabs-more-menu .tab { display: block; overflow: visible; }
+.tabs-more-menu .tab:hover, .tabs-more-menu .tab:focus-visible { background: var(--select); outline: none; }
+.tab { white-space: nowrap; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; padding: 0.3rem 0.9rem; border-radius: var(--radius-sm); color: var(--muted); text-decoration: none; font-weight: 500; font-size: 0.92rem; }
 .tab:hover { color: var(--fg); }
 .tab[aria-current="page"] { background: var(--surface); color: var(--fg); box-shadow: var(--shadow-sm); }
 .tab[aria-current="page"]::after { content: ""; display: block; height: 2px; margin: 0.1rem auto -0.15rem; width: 1.2rem; border-radius: 2px; background: var(--brand); }
 @media (max-width: 760px) {
   .layout.full { grid-template-rows: auto 1fr; }
-  .topbar .tabs { margin-left: 0; }
-  .tab { padding: 0.3rem 0.6rem; }
+  .topbar .tabs-wrap { margin-left: 0; order: 5; flex: 1 1 100%; } /* own row below brand and account, above the search */
+  .topbar .profile { margin-left: auto; }
+  .tab, .topbar .tabs-more > button.tab { padding: 0.3rem 0.6rem; }
 }
 
 /* ---------- Overview: tasks ---------- */
@@ -442,7 +454,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .karte-links ul { margin: 0; padding-left: 1rem; }
 
 /* ---------- Full-text search in the top bar ---------- */
-.search { position: relative; width: min(22rem, 36vw); }
+.search { position: relative; width: clamp(11rem, 24vw, 22rem); }
 .search input { width: 100%; background: var(--surface-2); border-color: transparent; padding-left: 0.9rem; border-radius: 999px; }
 .search input:hover { border-color: var(--border-strong); }
 .search input:focus-visible { background: var(--surface); }
@@ -525,6 +537,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .tab-new { border: 0; background: none; color: var(--muted); padding: 0 var(--space-2); font-size: 1.1rem; }
 .tab-new:hover { color: var(--accent); }
 .content > .tab-pane[hidden] { display: none; }
+/* wheel over an embedded document must not chain to the page: the iframe cannot be told, so lock the scroller while hovered */
+.content:has(.oo-frame:hover, iframe.pdf:hover), .content > .tab-pane:has(.oo-frame:hover, iframe.pdf:hover) { overflow: hidden; }
 .content.split { display: grid; grid-template-columns: 1fr 1fr; padding: 0; overflow: hidden; }
 .content.split > .tab-pane { overflow: auto; padding: var(--space-5) var(--space-6); min-width: 0; }
 .content.split > .tab-pane + .tab-pane:not([hidden]) { border-left: 1px solid var(--border); }
@@ -845,3 +859,86 @@ img.tile-icon { object-fit: contain; }
 .recent a { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--fg); text-decoration: none; }
 
 .row .badge { flex-shrink: 0; }
+
+/* ---------- v0.7: folder import, Office mode switch ---------- */
+.dropzone { display: grid; justify-items: center; gap: var(--space-2); padding: var(--space-5); margin: var(--space-3) 0; text-align: center; border: 2px dashed var(--border-strong); border-radius: var(--radius); color: var(--muted); background: var(--surface-2); }
+.dropzone.over { border-color: var(--accent); background: var(--accent-soft); color: var(--fg); }
+.dropzone p { margin: 0; }
+.import-progress { width: 100%; accent-color: var(--accent); }
+.import-list { max-height: 10rem; overflow: auto; margin: var(--space-2) 0; padding-left: 1.2rem; font-size: 0.85rem; }
+.mode-switch { position: relative; display: inline-grid; grid-template-columns: 1fr 1fr; padding: 3px; background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: 999px; }
+.mode-thumb { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / 2); background: var(--surface); border-radius: 999px; box-shadow: var(--shadow-sm), 0 0 0 1px var(--border); transition: transform 0.22s cubic-bezier(0.3, 0.7, 0.3, 1); }
+.mode-switch[data-mode="edit"] .mode-thumb { transform: translateX(100%); }
+.mode-switch button { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; border: 0; background: none; box-shadow: none; border-radius: 999px; padding: 0.35rem 1rem; color: var(--muted); }
+.mode-switch button:hover:not(:disabled) { background: none; color: var(--fg); }
+.mode-switch button[aria-checked="true"] { color: var(--fg); font-weight: 600; }
+.mode-switch button[aria-checked="true"] .icon { color: var(--accent); }
+.mode-switch button:disabled { opacity: 0.5; cursor: not-allowed; }
+.collabora-frame { width: 100%; height: 100%; border: 0; display: block; background: var(--surface); }
+@media (prefers-reduced-motion: reduce) { .mode-thumb { transition: none; } }
+/* ---------- Tasks (TaskBoard.tsx) and team functions (Admin.tsx) ---------- */
+.taskboard { display: grid; gap: var(--space-4); }
+.taskboard h2, .taskboard h3 { margin: 0 0 var(--space-2); }
+.task-bar { align-items: center; flex-wrap: wrap; gap: var(--space-3); }
+.check-row { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; }
+.task-items { list-style: none; margin: 0; padding: 0; display: grid; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); }
+.task-row { display: grid; grid-template-columns: auto 1fr 5.5rem 4.4rem; gap: var(--space-3); align-items: start; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border); }
+.task-row:last-child { border-bottom: 0; }
+.task-row.done .task-title { text-decoration: line-through; color: var(--muted); }
+.task-main { display: grid; gap: 0.1rem; min-width: 0; }
+.task-title { overflow-wrap: anywhere; }
+.task-note { font-size: 0.82rem; white-space: pre-wrap; }
+.task-due { grid-column: 3; text-align: right; font-size: 0.82rem; color: var(--muted); white-space: nowrap; padding-top: 0.1rem; }
+.task-due.overdue { color: var(--danger); font-weight: 600; }
+.task-actions { grid-column: 4; display: inline-flex; gap: 0.1rem; justify-content: flex-end; }
+@media (max-width: 600px) { .task-row { grid-template-columns: auto 1fr 4.4rem; } .task-due { grid-column: 2; grid-row: 2; text-align: left; } .task-actions { grid-column: 3; grid-row: 1 / span 2; } }
+.task-form { display: grid; gap: var(--space-3); }
+.task-form label { display: grid; gap: 0.2rem; font-size: 0.9rem; }
+.task-form .check-row { display: flex; }
+.task-form textarea, .task-form input:not([type="checkbox"]), .task-form select { width: 100%; box-sizing: border-box; }
+.taskboard.compact .task-items { box-shadow: none; }
+.feature-list { border: 1px solid var(--border); border-radius: var(--radius); display: grid; gap: var(--space-3); padding: var(--space-4); }
+.feature-list .check-row { align-items: flex-start; }
+
+/* Office documents get the full width; the properties box moves below the editor. */
+.node.wide-doc .node-grid { grid-template-columns: minmax(0, 1fr); }
+.node.wide-doc .oo-frame { height: max(30rem, calc(100vh - 21rem)); }
+.node.wide-doc .meta { max-width: 36rem; }
+
+/* ---------- Overview: every section is a box; two columns on wide screens ---------- */
+.ov-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); align-items: start; margin-top: var(--space-4); }
+.ov-wide { grid-column: 1 / -1; }
+.ov-box { min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); padding: var(--space-4) var(--space-5); }
+.ov-box h2 { margin: 0 0 var(--space-3); font-size: 1.05rem; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--fg); }
+.ov-box .dashboard h2 { margin: 0; }
+.ov-box .recent ul, .recent.ov-box ul { margin-bottom: 0; }
+.ov-box .dash-cat:first-of-type { margin-top: var(--space-3); }
+@media (max-width: 900px) { .ov-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- Integrations (Integrations.tsx) ---------- */
+.integration { display: grid; gap: var(--space-3); margin-bottom: var(--space-4); }
+.integration h3 { margin: 0; }
+.integration .field { display: grid; gap: 0.2rem; font-size: 0.9rem; }
+.integration .field input, .integration .field select { width: 100%; box-sizing: border-box; }
+.chip.ok { background: color-mix(in srgb, var(--ok) 18%, var(--surface)); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.task-sync { margin-left: var(--space-2); font-size: 0.7rem; vertical-align: middle; }
+.task-history { font-size: 0.85rem; }
+.task-history ul { margin: var(--space-2) 0 0; padding-left: 1.1rem; display: grid; gap: 0.2rem; }
+.task-history time { color: var(--muted); margin-right: 0.3rem; }
+
+/* task sections and manual order */
+.task-sections { display: grid; gap: var(--space-4); }
+.task-section { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); }
+.task-section.drop-target { border-color: var(--accent); }
+.task-section > header { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border); }
+.task-section > header h3 { margin: 0; flex: 1; }
+.task-section .task-items { border: 0; box-shadow: none; border-radius: 0; }
+.task-section .task-actions { grid-column: auto; }
+.task-empty { margin: 0; padding: var(--space-3); }
+.grip { cursor: grab; color: var(--muted); user-select: none; text-align: center; min-width: 1rem; }
+.taskboard:not(.compact) .task-row.movable { grid-template-columns: auto auto 1fr 5.5rem auto; }
+.task-row.movable .task-due { grid-column: 4; }
+.task-row.movable .task-actions { grid-column: 5; align-items: center; }
+.task-row.drop-before { box-shadow: 0 -2px 0 var(--accent) inset; }
+.task-move { max-width: 9rem; font-size: 0.82rem; padding: 0.15rem 0.3rem; }
+@media (max-width: 600px) { .taskboard:not(.compact) .task-row.movable { grid-template-columns: auto auto 1fr; } .task-row.movable .task-due { grid-column: 3; grid-row: 2; text-align: left; } .task-row.movable .task-actions { grid-column: 1 / -1; grid-row: 3; justify-content: flex-start; flex-wrap: wrap; } }

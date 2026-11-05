@@ -1,5 +1,6 @@
 import { createContext, MouseEvent as ReactMouseEvent, useContext, useEffect, useState } from "react";
 import { api, Kind, NodeDetail } from "./api";
+import { extensions } from "./extensions";
 import { Icon } from "./Icons";
 
 /** One open view in the in-app tab bar; its path is the URL it shows (e.g. /n/<id>, /netzwerk/<id>, /). */
@@ -35,7 +36,12 @@ export function loadTabs(user: string, path: string): TabState {
   } catch {
     /* storage unavailable or broken: start fresh */
   }
-  const tabs = (saved?.tabs ?? []).filter((t) => t && typeof t.path === "string" && t.path.startsWith("/"));
+  // "/" (the overview) is no tab any more; old saved ones are dropped.
+  const tabs = (saved?.tabs ?? []).filter((t) => t && typeof t.path === "string" && t.path.startsWith("/") && t.path !== "/");
+  if (path === "/") {
+    const list = tabs.length ? tabs : [{ id: newTabId(), path: "/wiki" }];
+    return { tabs: list, active: list.some((t) => t.id === saved?.active) ? saved!.active : list[0].id, split: null };
+  }
   // The URL wins: reload or a shared link shows that view, in its existing tab if there is one.
   const hit = tabs.find((t) => t.path === path);
   if (hit) return { tabs, active: hit.id, split: saved?.split && saved.split !== hit.id && tabs.some((t) => t.id === saved!.split) ? saved.split : null };
@@ -64,6 +70,9 @@ function useTabLabel(path: string, version: number) {
       const p = path.split("?")[0];
       setLabel(p === "/" ? { icon: "🏠", title: "Übersicht" } : p.startsWith("/netzwerk") ? { icon: "🗺️", title: "Netzwerk" }
         : p.startsWith("/verwaltung") ? { icon: "gear", title: "Verwaltung" }
+        : p.startsWith("/aufgaben") ? { icon: "✅", title: "Aufgaben" }
+        : p.startsWith("/anwender") ? { icon: "❓", title: "Alle Anwender" }
+        : extensions.find((e) => p.startsWith(e.path)) ? { icon: "", title: extensions.find((e) => p.startsWith(e.path))!.label }
         : { icon: "📚", title: "Wiki" });
       return;
     }

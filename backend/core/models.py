@@ -82,7 +82,7 @@ def _upload_path(instance, filename):
 
 
 class FileVersion(models.Model):
-    UPLOAD, ONLYOFFICE, RESTORE = "upload", "onlyoffice", "restore"
+    UPLOAD, ONLYOFFICE, RESTORE, COLLABORA = "upload", "onlyoffice", "restore", "collabora"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     node = models.ForeignKey(Node, on_delete=models.CASCADE, related_name="file_versions")
@@ -94,7 +94,8 @@ class FileVersion(models.Model):
     user = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
     comment = models.CharField(max_length=255, blank=True)
     source = models.CharField(max_length=12, default=UPLOAD,
-                              choices=[(UPLOAD, "Upload"), (ONLYOFFICE, "OnlyOffice"), (RESTORE, "Wiederhergestellt")])
+                              choices=[(UPLOAD, "Upload"), (ONLYOFFICE, "OnlyOffice"), (RESTORE, "Wiederhergestellt"),
+                                       (COLLABORA, "Collabora")])
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -123,7 +124,7 @@ class NodePermission(models.Model):
 
 class AuditLog(models.Model):
     ACTIONS = [(a, a) for a in ("create", "update", "delete", "move", "restore", "publish", "permissions",
-                                "login", "login_failed", "logout", "team", "user")]
+                                "login", "login_failed", "login_locked", "logout", "team", "user")]
 
     user = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     # Kept as text so entries survive user deletion and record the name tried in failed logins.
@@ -139,6 +140,14 @@ class AuditLog(models.Model):
 
     class Meta:
         ordering = ["-created_at", "-id"]
+
+
+class LoginThrottle(models.Model):
+    """Failed-login counter for one key ("user:<name>" or "ip:<address>"), see core/throttle.py."""
+    key = models.CharField(max_length=200, unique=True)
+    fails = models.PositiveIntegerField(default=0)
+    last_fail = models.DateTimeField()
+    locked_until = models.DateTimeField(null=True, blank=True)
 
 
 class UserSettings(models.Model):
@@ -160,6 +169,8 @@ class Team(models.Model):
     write_group = models.OneToOneField("auth.Group", null=True, on_delete=models.SET_NULL, related_name="+")
     # Deleted content stays this many days in the team's trash; leaders may change it.
     trash_days = models.PositiveIntegerField(default=40)
+    # Functions an admin switched off for this team (keys of features.FEATURES); empty = everything on.
+    disabled_features = ArrayField(models.CharField(max_length=20), default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -230,3 +241,82 @@ class FaqSettings(models.Model):
     """Single row (pk=1): where "Ticket erstellen" on the public FAQ leads; empty URL = no button."""
     ticket_url = models.CharField(max_length=500, blank=True)  # may contain {q}, replaced by the search term in the browser
     ticket_label = models.CharField(max_length=60, default="Ticket erstellen")
+
+
+class WopiLock(models.Model):
+    """WOPI lock of a file while Collabora has it open for editing; expires unless refreshed."""
+    node = models.OneToOneField(Node, on_delete=models.CASCADE, related_name="wopi_lock")
+    lock = models.CharField(max_length=1024)
+    expires = models.DateTimeField()
+class TaskSection(models.Model):
+    """A named section of one user's task board (Findus only; Todoist does not know it)."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="task_sections")
+    title = models.CharField(max_length=100)
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["position", "id"]
+
+
+class Task(models.Model):
+    """A to-do item of one user. Others may have created it for them; private ones are hidden from teammates."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="tasks")
+    created_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    title = models.CharField(max_length=200)
+    notes = models.TextField(blank=True)
+    due = models.DateField(null=True, blank=True)
+    private = models.BooleanField(default=False)
+    section = models.ForeignKey(TaskSection, null=True, blank=True, on_delete=models.SET_NULL, related_name="tasks")  # null = "Ohne Bereich"
+    position = models.PositiveIntegerField(default=0)  # order inside the section; ties fall back to the old order (due, newest)
+    done_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)  # the later change wins when Findus and Todoist disagree
+
+
+class TaskEvent(models.Model):
+    """Notes in a task's history: what the Todoist sync did to it (taken over, conflicts, unlinked)."""
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="events")
+    at = models.DateTimeField(auto_now_add=True)
+    text = models.CharField(max_length=300)
+
+    class Meta:
+        ordering = ["-at", "-id"]
+
+
+class IntegrationSettings(models.Model):
+    """Single row (pk=1): global switches of the administration for the optional integrations."""
+    todoist_allowed = models.BooleanField(default=True)
+
+    @classmethod
+    def allowed(cls):
+        row = cls.objects.filter(pk=1).first()
+        return row.todoist_allowed if row else True
+
+
+class TodoistLink(models.Model):
+    """A user's connection to Todoist. The API token is stored encrypted (core/todoist.py) and never returned by the API."""
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="todoist")
+    token_enc = models.TextField()
+    connected_at = models.DateTimeField()
+    project_id = models.CharField(max_length=40)
+    project_name = models.CharField(max_length=200)
+    sync_token = models.TextField(blank=True)  # Todoist's incremental sync token; empty = read everything once
+    include_private = models.BooleanField(default=False)  # also mirror tasks marked private in Findus
+    import_new = models.BooleanField(default=True)  # tasks created in the Todoist project become Findus tasks
+    last_sync_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.CharField(max_length=300, blank=True)
+    last_error_at = models.DateTimeField(null=True, blank=True)
+    syncing = models.BooleanField(default=False)  # a run is going on (guards against two runs at once)
+    sync_started_at = models.DateTimeField(null=True, blank=True)
+
+
+class TodoistItem(models.Model):
+    """Links one Findus task to one Todoist task of the project; state = values at the last sync (basis for the merge).
+    Without a task (it was deleted in Findus) the row only stops the Todoist task from being imported again."""
+    link = models.ForeignKey(TodoistLink, on_delete=models.CASCADE, related_name="items")
+    todoist_id = models.CharField(max_length=40)
+    task = models.OneToOneField(Task, null=True, blank=True, on_delete=models.SET_NULL, related_name="todoist_item")
+    state = models.JSONField(default=dict)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["link", "todoist_id"], name="core_todoistitem_unique")]

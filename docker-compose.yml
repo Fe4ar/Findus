@@ -26,7 +26,7 @@ services:
       WIKI_ALIASES: ${WIKI_ALIASES:-}
     volumes:
       - media:/data/media
-      # ~/jobs/board.md from CT 103, pushed here by cron (see STATUS.md).
+      # optional read-only drop folder for local extensions (empty by default)
       - ./board:/board:ro
     depends_on:
       db:
@@ -59,6 +59,12 @@ services:
       WIKI_HOST: ${WIKI_HOST:-localhost}
       WIKI_ALIASES: ${WIKI_ALIASES:-}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-private_ranges}
+      # Own host name of the help portal (/hilfe); the default is a name nobody can reach.
+      PUBLIC_HOST: ${PUBLIC_HOST:-hilfe.invalid}
+      # Collabora Online host:port (optional); without it /collabora/ goes nowhere and Office files open in OnlyOffice.
+      COLLABORA_UPSTREAM: ${COLLABORA_UPSTREAM:-127.0.0.1:9}
+      # Switch to Content-Security-Policy-Report-Only to try a stricter change without breaking pages.
+      CSP_HEADER: ${CSP_HEADER:-Content-Security-Policy}
     ports:
       - "80:80"
       - "443:443"

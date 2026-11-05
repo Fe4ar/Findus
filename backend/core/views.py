@@ -1,6 +1,8 @@
 import uuid
+from pathlib import Path
 
 import nh3
+from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import Group
 from django.db import connection, transaction
@@ -12,8 +14,9 @@ from rest_framework.decorators import api_view
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.response import Response
 
-from .models import Node, NodePermission, PageRevision, UserSettings
-from . import audit, rights
+from .models import IntegrationSettings, Node, NodePermission, PageRevision, UserSettings
+from . import audit, rights, throttle
+from .features import enabled
 from .permissions import FLAGS, MANAGE, PUBLISH, READ, WRITE, _chain, can, can_download, effective, governing, is_admin
 from .search import revision_text
 
@@ -111,22 +114,40 @@ def validate_parent(kind, parent, space=Node.WIKI):
         raise ValidationError({"parent": "Ziel muss ein Bereich oder Ordner sein."})
 
 
+# backend/VERSION is bumped together with frontend/package.json; the TV dashboard reads it from here.
+VERSION = (Path(__file__).resolve().parent.parent / "VERSION").read_text().strip()
+
+
 @api_view(["GET"])
 def health(request):
     with connection.cursor() as cur:
         cur.execute("SELECT 1")
-    return Response({"ok": True})
+    return Response({"ok": True, "version": VERSION})
 
 
 @api_view(["POST"])
 def auth_login(request):
+    name = str(request.data.get("username") or "")
+    ks = throttle.keys(request, name)
+    wait = throttle.locked_seconds(ks)
+    if wait:
+        return Response({"detail": f"Zu viele Fehlversuche. Bitte in {wait} Sekunden erneut versuchen."}, status=429, headers={"Retry-After": str(wait)})
     user = authenticate(request, username=request.data.get("username"), password=request.data.get("password"))
     if user is None:
-        audit.log(request, "login_failed", username=str(request.data.get("username") or "")[:150])
+        audit.log(request, "login_failed", username=name[:150])
+        if (locked := throttle.record_failure(ks)):
+            audit.log(request, "login_locked", username=name[:150], locked=locked)
         return Response({"detail": "Benutzername oder Passwort falsch."}, status=400)
+    throttle.record_success(ks)
     login(request, user)
     audit.log(request, "login", user=user)
     return Response(me_data(user))
+
+
+@api_view(["GET"])
+def auth_gate(request):
+    """forward_auth target of Caddy for /office/: 204 for a signed-in session, 401 for everyone else."""
+    return Response(status=204 if request.user.is_authenticated else 401)
 
 
 @api_view(["POST"])
@@ -137,12 +158,27 @@ def auth_logout(request):
     return Response(status=204)
 
 
+def nav_data(user):
+    """Top navigation: one tab per team (admins: all teams) with its area, and whether areas outside every team exist."""
+    from .models import Team
+    teams = Team.objects.all() if is_admin(user) else Team.objects.filter(members__user=user)
+    other = any(not a.is_public and not hasattr(a, "team") and can(user, READ, a)
+                for a in Node.objects.filter(parent=None, kind=Node.AREA, space=Node.WIKI, deleted_at=None))
+    admin = is_admin(user)
+    led = {m.team_id: m.is_leader or m.can_write for m in user.team_memberships.all()}
+    return {"teams": [{"id": t.id, "name": t.name, "area": t.area_id, "write": admin or led.get(t.id, False)}
+                      for t in teams.distinct().select_related("area") if t.area_id],
+            "other": other,
+            "public_areas": [a.id for a in Node.objects.filter(parent=None, kind=Node.AREA, space=Node.WIKI, is_public=True, deleted_at=None)
+                             if can(user, READ, a)]}
+
+
 def me_data(user):
     if not user.is_authenticated:
         return {"authenticated": False}
     return {"authenticated": True, "username": user.get_username(), "name": user_name(user),
-            "is_superuser": user.is_superuser, "is_admin": is_admin(user), "can_create_area": can(user, WRITE), "can_overview": can(user, READ),
-            "can_download": can_download(user), "teams": [{"id": m.team_id, "name": m.team.name, "leader": m.is_leader, "can_write": m.is_leader or m.can_write}
+            "is_superuser": user.is_superuser, "is_admin": is_admin(user), "can_create_area": can(user, WRITE) and "wiki" in enabled(user), "can_overview": can(user, READ),
+            "can_download": can_download(user), "collabora": bool(settings.COLLABORA_UPSTREAM), "features": sorted(enabled(user)), "nav": nav_data(user), "todoist": IntegrationSettings.allowed(), "teams": [{"id": m.team_id, "name": m.team.name, "leader": m.is_leader, "can_write": m.is_leader or m.can_write}
                       for m in user.team_memberships.select_related("team")],
             "theme": getattr(getattr(user, "findus_settings", None), "theme", "auto")}
 
@@ -174,6 +210,12 @@ def tree(request):
     else:
         space = request.query_params.get("space") or Node.WIKI
         qs = Node.objects.filter(parent=None, deleted_at=None, space=space)
+        # Navigation tabs: "Alle Anwender" lists the public areas, the rest-of-wiki tab everything that is neither public nor a team's.
+        scope = request.query_params.get("scope")
+        if scope == "public":
+            qs = qs.filter(is_public=True)
+        elif scope == "other":
+            qs = qs.filter(is_public=False, team=None)
     ctx = rights.Context()
     return Response([{**node_summary(n, ctx), "writable": can(request.user, WRITE, n)} for n in qs if can(request.user, READ, n)])
 
@@ -199,6 +241,8 @@ def node_create(request):
     if space not in Node.SPACE_KINDS:
         raise ValidationError({"space": "wiki oder karte"})
     validate_parent(kind, parent, space)
+    if parent is None and ("network" if space == Node.KARTE else "wiki") not in enabled(request.user):
+        raise PermissionDenied("Diese Funktion ist für dein Team nicht aktiviert.")
     last = Node.objects.filter(parent=parent, space=space, deleted_at=None).order_by("-position").first()
     # Without the publish right new content starts as a draft, so only writers see it until someone publishes it.
     status = Node.PUBLISHED if kind in Node.CONTAINERS or can(request.user, PUBLISH, parent) else Node.DRAFT
