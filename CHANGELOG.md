@@ -2,6 +2,11 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.8.1] - 2026-11-09
+
+### Fixed
+- The tab bar stands out from the page again: inactive tabs have their own fill and frame, the active tab is framed with an accent bar, a single open tab keeps its frame, and the "+" button is a small framed button (light and dark theme)
+
 ## [0.8.0] - 2026-11-09
 
 ### Added

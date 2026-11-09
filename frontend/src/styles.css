@@ -820,15 +820,16 @@ img.tile-icon { object-fit: contain; }
 .workspace { grid-column: 2; grid-row: 2; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .layout.full .workspace { grid-column: 1; }
 .workspace > .content { flex: 1; min-height: 0; }
-.tabbar { grid-column: auto; padding: var(--space-2) var(--space-3) 0; background: var(--bg); gap: 2px; }
-.doctab { max-width: 13rem; min-width: 5rem; border-color: transparent; background: transparent; }
-.doctab:hover { background: var(--surface-2); color: var(--fg); }
-.doctab.active { background: var(--surface); color: var(--fg); border-color: var(--border); box-shadow: inset 0 2px 0 var(--accent); font-weight: 600; }
+.tabbar { grid-column: auto; padding: var(--space-2) var(--space-3) 0; background: var(--bg); gap: 3px; border-bottom: 1px solid var(--border-strong); }
+/* Tabs stand out from the page: inactive ones with their own fill and border, the active one lighter, framed and with the accent bar. */
+.doctab { max-width: 13rem; min-width: 5rem; border-color: var(--border-strong); background: var(--surface-2); color: var(--muted); }
+.doctab:hover { background: var(--surface); color: var(--fg); }
+.doctab.active { background: var(--surface); color: var(--fg); border-color: var(--border-strong); box-shadow: inset 0 3px 0 var(--accent); font-weight: 600; margin-bottom: -1px; }
 .doctab:not(.active):not(:hover):not(:focus-within) .doctab-close { opacity: 0; }
 .doctab.active .doctab-close { opacity: 0.7; }
-.tabbar.single { border-bottom-color: transparent; padding-bottom: 0; }
-.tabbar.single .doctab { border-color: transparent; box-shadow: none; background: transparent; font-weight: 500; }
-.tabbar.single .doctab-close { display: none; }
+.tabbar.single .doctab-close { display: none; } /* a single tab keeps its frame; only the close button goes */
+.tab-new { align-self: center; width: 1.6rem; height: 1.6rem; padding: 0; margin-left: 2px; border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--muted); border-radius: var(--radius-sm); line-height: 1; }
+.tab-new:hover { background: var(--surface); color: var(--fg); }
 .draft-note { display: flex; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-3); padding: var(--space-2) var(--space-3); background: var(--surface-2); border-radius: var(--radius); font-size: 0.9rem; }
 .admin { display: block; }
 .admin-nav { position: static; padding: 0 var(--space-2); }
