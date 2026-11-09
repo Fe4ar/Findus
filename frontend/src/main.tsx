@@ -15,6 +15,7 @@ import {
   currentPath, DocTab, loadTabs, MAX_TABS, newTabId, nodeIdOf, pinnedFirst, saveTabs, TabBar, TabContext, TabState, wantsNewTab,
 } from "./Tabs";
 import { ProfileMenu } from "./ProfileMenu";
+import { ForcedPassword } from "./Password";
 import { NavTab, TabNav } from "./TabNav";
 import "./styles.css";
 
@@ -29,6 +30,7 @@ function tabsFor(me: Me): NavTab[] {
   const nav = me.nav ?? { teams: [], other: false, public_areas: [] };
   return [
     { id: "overview", label: "Übersicht", path: "/" },
+    ...(nav.private ? [{ id: "private", label: "Privat", path: `/n/${nav.private}` }] : []),
     ...(on("wiki") ? nav.teams.map((t) => ({ id: `team-${t.id}`, label: teamLabel(t.name), path: `/n/${t.area}`, team: true })) : []),
     ...(on("wiki") && nav.other ? [{ id: "wiki", label: "Wiki", path: "/wiki" }] : []),
     ...(on("tasks") ? [{ id: "tasks", label: "Aufgaben", path: "/aufgaben" }] : []),
@@ -147,7 +149,8 @@ function App() {
     api<NodeDetail>(`/api/nodes/${openId}`).then((n) => {
       const root = n.breadcrumb[0]?.id ?? n.id;
       const team = me.nav?.teams.find((t) => t.area === root);
-      setAreaTab((m) => ({ ...m, [openId]: team ? `team-${team.id}` : me.nav?.public_areas.includes(root) ? "faq" : "wiki" }));
+      // A folder another team shared with us opens in the receiving team's tab (via_team), not in the general wiki.
+      setAreaTab((m) => ({ ...m, [openId]: team ? `team-${team.id}` : n.via_team ? `team-${n.via_team}` : root === me.nav?.private ? "private" : me.nav?.public_areas.includes(root) ? "faq" : "wiki" }));
     }).catch(() => undefined);
   }, [me, openId, areaTab]);
 
@@ -180,6 +183,17 @@ function App() {
   // Tabs are per user and survive a reload; the URL picks the active one.
   useEffect(() => { if (user) setState(loadTabs(user, currentPath())); }, [user]);
   useEffect(() => { if (user) saveTabs(user, state); }, [user, state]);
+  // Tabs of a function the user's teams do not have (any more) are dropped, so nothing of it stays visible.
+  useEffect(() => {
+    if (!me?.features) return;
+    const ok = (p: string) => !(p.startsWith("/aufgaben") && !me.features!.includes("tasks")) && !(/^\/(netzwerk|karte)/.test(p) && !me.features!.includes("network"));
+    setState((s) => {
+      if (s.tabs.every((t) => ok(t.path))) return s;
+      const kept = s.tabs.filter((t) => ok(t.path));
+      const tabs = kept.length ? kept : [{ id: newTabId(), path: "/wiki" }];
+      return { ...s, tabs, active: tabs.some((t) => t.id === s.active) ? s.active : tabs[0].id, split: tabs.some((t) => t.id === s.split) ? s.split : null };
+    });
+  }, [me]);
   // The active tab determines the URL (switching tabs is a history step, so Back returns to the previous tab).
   useEffect(() => { if (currentPath() !== activePath) history.pushState(null, "", activePath); }, [activePath]);
   // Hidden editors (OnlyOffice, draw.io) stay loaded; a resize lets them lay out again when shown.
@@ -277,8 +291,11 @@ function App() {
   if (!me) return null;
   // Logged-out visitors get nothing but the login; the public FAQ lives in its own portal (/hilfe).
   if (anon) return linkChecked ? <Login onLogin={applyMe} /> : null;
+  // The start admin sees nothing but this until the new password is set.
+  if (me.must_change_password) return <ForcedPassword onDone={applyMe} onLogout={async () => { await api("/api/auth/logout", { method: "POST" }); setMe({ authenticated: false }); }} />;
   // Anonymous visitors only get the wiki tree with the public areas, and a single view without the tab bar.
-  const section: Tab = sectionOf(activePath, openId ? areaTab[openId] ?? lastTab.current : undefined);
+  const rawSection = sectionOf(activePath, openId ? areaTab[openId] ?? lastTab.current : undefined);
+  const section: Tab = (rawSection === "tasks" || rawSection === "map") && !me.features?.includes(rawSection === "tasks" ? "tasks" : "network") ? "overview" : rawSection;
   lastTab.current = section === "admin" || section === "overview" || section === "tasks" || section === "map" || extensions.some((e) => e.id === section) ? lastTab.current : section;
   const tabs = tabsFor(me);
   const team = me.nav?.teams.find((t) => `team-${t.id}` === section);
@@ -291,16 +308,16 @@ function App() {
       <header className="topbar">
         <a href="/" className="brand" onClick={(e) => { e.preventDefault(); go("/"); }}><img src="/findus.svg" alt="" className="logo" />Findus</a>
         <TabNav tabs={tabs} section={section} go={go} />
-        <Search onSelect={(id) => go(`/n/${id}`)} onOpenTab={anon ? undefined : (path) => openTab(path)} />
-        <ProfileMenu me={me} theme={theme} onTheme={chooseTheme}
+        <Search onSelect={(id) => go(`/n/${id}`)} onOpenTab={anon ? undefined : (path) => openTab(path)} teams={me.nav?.teams ?? []} hasPrivate={!!me.nav?.private} />
+        <ProfileMenu me={me} theme={theme} onTheme={chooseTheme} onMe={applyMe}
           onLogout={async () => { await api("/api/auth/logout", { method: "POST" }); setMe({ authenticated: false }); }} />
       </header>
-      {(section === "wiki" || section === "faq" || team) && (
-        <nav className="sidebar" aria-label={team ? teamLabel(team.name) : section === "faq" ? "Alle Anwender" : "Ordnerbaum"}>
+      {(section === "wiki" || section === "faq" || section === "private" || team) && (
+        <nav className="sidebar" aria-label={team ? teamLabel(team.name) : section === "private" ? "Privat" : section === "faq" ? "Alle Anwender" : "Ordnerbaum"}>
           <Tree key={section} selected={selectedId} version={treeVersion} onChanged={changed} user={user ?? ""} canExport={!!me.can_download}
-            onSelect={(id) => go(id ? `/n/${id}` : team ? `/n/${team.area}` : section === "faq" ? "/anwender" : "/wiki")}
-            rootId={team?.area} scope={section === "faq" ? "public" : section === "wiki" ? "other" : undefined}
-            canCreateRoot={team ? team.write : section === "faq" ? false : !!me.can_create_area}
+            onSelect={(id) => go(id ? `/n/${id}` : team ? `/n/${team.area}` : section === "private" ? `/n/${me.nav?.private}` : section === "faq" ? "/anwender" : "/wiki")}
+            rootId={team?.area ?? (section === "private" ? me.nav?.private ?? undefined : undefined)} head={team ? teamLabel(team.name) : undefined} scope={section === "faq" ? "public" : section === "wiki" ? "other" : undefined}
+            canCreateRoot={team ? team.write : section === "private" ? false : section === "faq" ? false : !!me.can_create_area}
             onOpenTab={(id) => openTab(`/n/${id}`)} />
           <div className="sidebar-foot">
             <a href="/verwaltung" onClick={(e) => { e.preventDefault(); dispatchEvent(new Event("findus-settings")); }}>Mein Konto</a>
@@ -345,7 +362,7 @@ function App() {
 function View({ path, anon, me, go, changed }: { path: string; anon: boolean; me: Me; go: (path: string) => void; changed: () => void }) {
   const p = path.split("?")[0];
   const id = nodeIdOf(p);
-  if (p.startsWith("/netzwerk") && !anon) {
+  if (p.startsWith("/netzwerk") && !anon && me.features?.includes("network")) {
     return id ? <NetView key={id} id={id} onChanged={changed} search={path.split("?")[1] ?? ""} /> : (
       <>
         <h1>Netzwerk</h1>
@@ -356,9 +373,7 @@ function View({ path, anon, me, go, changed }: { path: string; anon: boolean; me
   if (p.startsWith("/verwaltung") && !anon) return <Admin me={me} path={path} go={go} />;
   const ext = extensions.find((e) => p.startsWith(e.path));
   if (ext && !anon && ext.show(me)) return <>{ext.render()}</>;
-  if (p.startsWith("/aufgaben") && !anon) {
-    return me.features?.includes("tasks") ? <><h1>Aufgaben</h1><TaskBoard /></> : <p className="muted">Aufgaben sind für dein Team nicht aktiviert.</p>;
-  }
+  if (p.startsWith("/aufgaben") && !anon && me.features?.includes("tasks")) return <><h1>Aufgaben</h1><TaskBoard /></>;
   if (p.startsWith("/n/") && id) return <NodeView key={id} id={id} onSelect={(nid) => go(nid ? `/n/${nid}` : "/wiki")} onChanged={changed} />;
   if (p.startsWith("/anwender")) return <Faq onSelect={(nid) => go(`/n/${nid}`)} />;
   if (p.startsWith("/wiki")) {

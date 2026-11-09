@@ -1,11 +1,12 @@
 from django.urls import path
 
-from . import admin_api, dashboard, integrations, public, stats, export, files, folders_io, maps, search, services, tasks, views, wopi
+from . import admin_api, shares, dashboard, integrations, public, stats, export, files, folders_io, maps, search, services, tasks, views, wopi
 
 urlpatterns = [
     path("api/health", views.health),
     path("api/auth/login", views.auth_login),
     path("api/auth/gate", views.auth_gate),
+    path("api/auth/password", views.auth_password),
     path("api/auth/logout", views.auth_logout),
     path("api/auth/me", views.auth_me),
     path("api/auth/settings", views.auth_settings),
@@ -44,8 +45,12 @@ urlpatterns = [
     path("api/dashboard/order", dashboard.order),
     path("api/admin/users", admin_api.users),
     path("api/admin/users/<int:user_id>", admin_api.user_edit),
+    path("api/admin/users/<int:user_id>/restore", admin_api.user_restore),
+    path("api/admin/retention", admin_api.retention),
     path("api/teams", admin_api.team_list),
     path("api/teams/<int:team_id>", admin_api.team_edit),
+    path("api/nodes/<uuid:node_id>/shares", shares.node_shares),
+    path("api/shares/incoming", shares.incoming),
     path("api/admin/folders", admin_api.folders),
     path("api/admin/folders/save", admin_api.folders_save),
     path("api/trash", admin_api.trash),

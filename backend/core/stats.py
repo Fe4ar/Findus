@@ -79,7 +79,7 @@ def stats(request):
             raise NotFound()
     area_ids = None if admin and not want else {t.area_id for t in teams if t.area_id}
     nodes = Node.objects.filter(deleted_at=None, space=Node.WIKI).select_related("parent")
-    mine = [n for n in nodes if _in_scope(n, area_ids)]
+    mine = [n for n in nodes if _in_scope(n, area_ids) and not _root(n).owner_id]
     now = timezone.now()
 
     def top(days):

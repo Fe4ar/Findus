@@ -1,11 +1,11 @@
 # Seeds fictional content into an EMPTY throwaway database and prints the recorded API responses as JSON
 # (frontend/src/demo-data.json). Run only via scripts/demo-record.sh, never against a real instance.
-import base64, json, sys, tempfile
+import base64, json, sys
 from pathlib import Path
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.test import Client
-from core import board, maps, services
+from core import maps, services
 from core.files import _save_version
 from core.models import Node, PageRevision
 from core.search import revision_text
@@ -66,13 +66,6 @@ page("Passwort vergessen?", faq, 0, "<p>Bitte bei der IT melden, das Passwort wi
 fake = lambda urls: {x: "192.0.2.7" not in x for x in urls}
 services.check_all = maps.check_all = fake
 services.SERVICES_FILE = Path(services.__file__).parent.parent / "services.example.json"  # never a local services.json
-board_file = Path(tempfile.mkdtemp()) / "board.md"
-board_file.write_text("| Nr | Aufgabe | Wer | Status | Notiz |\n|---|---|---|---|---|\n"
-                      "| 1 | Backup-Test durchführen | Anna | ✅ | Wiederherstellung ok |\n"
-                      "| 2 | Drucker im 2. OG tauschen | Ben | 🔄 | Ersatz bestellt |\n"
-                      "| 3 | Handbuch WLAN schreiben | Anna | ⏳ | |\n"
-                      "| 4 | Zertifikat NAS erneuern | Chris | ❓ | Freigabe fehlt |\n", encoding="utf-8")
-board.BOARD_FILE = board_file
 
 c = Client(SERVER_NAME="localhost")
 c.force_login(u)
@@ -83,7 +76,7 @@ def get(path):
     out[path] = data = r.json()
     return data
 
-for p in ("/api/board", "/api/services", "/api/pages"):
+for p in ("/api/services", "/api/pages"):
     get(p)
 queue = get("/api/tree?space=wiki") + get("/api/tree?space=karte")
 while queue:

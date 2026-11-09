@@ -38,6 +38,9 @@ class Node(models.Model):
     inherit_rights = models.BooleanField(default=True)
     # Only on areas: "never without login" – is_public can no longer be set anywhere in this area (internal areas, team areas).
     never_public = models.BooleanField(default=False)
+    # Only on root areas: the personal area of one user ("Mein Bereich"). Only this user may use it, nobody else, admins
+    # included (permissions.can); PROTECT, so deleting the user can never turn it into an ordinary area.
+    owner = models.ForeignKey(User, null=True, blank=True, on_delete=models.PROTECT, related_name="private_areas")
     version = models.IntegerField(default=1)
     created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
     updated_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
@@ -158,6 +161,19 @@ class UserSettings(models.Model):
     theme = models.CharField(max_length=5, choices=THEMES, default="auto")
     # Set by admins: file download, PDF/Markdown export and OnlyOffice download/print (see permissions.can_download).
     can_download = models.BooleanField(default=True)
+    # Set when an admin deleted the user: the account is inactive and its personal area soft-deleted until the
+    # retention (IntegrationSettings.user_retention_days) has passed; then purge_trash removes both for good.
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    # Only the start admin of a fresh installation (core/management/commands/ensure_start_admin.py): until the password
+    # is changed the account can do nothing else (core/middleware.py).
+    must_change_password = models.BooleanField(default=False)
+
+
+OPT_IN_FEATURES = ("tasks", "network")
+
+
+def default_disabled_features():
+    return list(OPT_IN_FEATURES)
 
 
 class Team(models.Model):
@@ -169,8 +185,11 @@ class Team(models.Model):
     write_group = models.OneToOneField("auth.Group", null=True, on_delete=models.SET_NULL, related_name="+")
     # Deleted content stays this many days in the team's trash; leaders may change it.
     trash_days = models.PositiveIntegerField(default=40)
-    # Functions an admin switched off for this team (keys of features.FEATURES); empty = everything on.
-    disabled_features = ArrayField(models.CharField(max_length=20), default=list, blank=True)
+    # Who may share the team's folders with other teams: only the leaders (default) or every member (see shares.py).
+    share_by_members = models.BooleanField(default=False)
+    # Functions switched off for this team (keys of features.FEATURES). Aufgaben and Netzwerk are off until an admin
+    # releases them (OPT_IN), everything else is on until an admin switches it off.
+    disabled_features = ArrayField(models.CharField(max_length=20), default=default_disabled_features, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -286,6 +305,13 @@ class TaskEvent(models.Model):
 class IntegrationSettings(models.Model):
     """Single row (pk=1): global switches of the administration for the optional integrations."""
     todoist_allowed = models.BooleanField(default=True)
+    # How long a deleted user and their personal area are kept before they are removed for good.
+    user_retention_days = models.PositiveIntegerField(default=30)
+
+    @classmethod
+    def retention_days(cls):
+        row = cls.objects.filter(pk=1).first()
+        return row.user_retention_days if row else 30
 
     @classmethod
     def allowed(cls):

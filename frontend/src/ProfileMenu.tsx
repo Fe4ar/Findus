@@ -2,6 +2,7 @@ import { KeyboardEvent, useEffect, useRef, useState } from "react";
 import { Me, Theme } from "./api";
 import { Integrations } from "./Integrations";
 import { adminAllowed } from "./Admin";
+import { PasswordDialog } from "./Password";
 
 export const THEMES: [Theme, string, string][] = [["light", "☀️", "Hell"], ["dark", "🌙", "Dunkel"], ["auto", "🖥️", "Automatisch"]];
 
@@ -30,13 +31,15 @@ interface Props {
   theme: Theme;
   onTheme: (t: Theme) => void;
   onLogout: () => void;
+  onMe?: (me: Me) => void;
 }
 
 /** Round avatar with initials; opens the account menu (WAI-ARIA menu button: arrows, Home/End, Esc). */
-export function ProfileMenu({ me, theme, onTheme, onLogout }: Props) {
+export function ProfileMenu({ me, theme, onTheme, onLogout, onMe }: Props) {
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState(false);
   const [integrations, setIntegrations] = useState(false);
+  const [password, setPassword] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const name = me.name || me.username || "";
@@ -94,6 +97,7 @@ export function ProfileMenu({ me, theme, onTheme, onLogout }: Props) {
           <ThemeSwitch theme={theme} onTheme={onTheme} role="menuitemradio" />
           <hr />
           <button role="menuitem" tabIndex={-1} onClick={() => { close(false); setSettings(true); }}>Einstellungen</button>
+          <button role="menuitem" tabIndex={-1} onClick={() => { close(false); setPassword(true); }}>Passwort ändern</button>
           {me.todoist && me.features?.includes("tasks") && (
             <button role="menuitem" tabIndex={-1} onClick={() => { close(false); setIntegrations(true); }}>Integrationen</button>
           )}
@@ -102,6 +106,7 @@ export function ProfileMenu({ me, theme, onTheme, onLogout }: Props) {
           <button role="menuitem" tabIndex={-1} onClick={() => { close(false); onLogout(); }}>Abmelden</button>
         </div>
       )}
+      {password && <PasswordDialog onClose={() => { setPassword(false); button.current?.focus(); }} onDone={(m) => onMe?.(m)} />}
       {integrations && <Integrations onClose={() => { setIntegrations(false); button.current?.focus(); }} />}
       {settings && <Settings me={me} theme={theme} onTheme={onTheme} onClose={() => { setSettings(false); button.current?.focus(); }} />}
     </div>

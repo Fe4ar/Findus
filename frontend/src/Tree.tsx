@@ -4,6 +4,7 @@ import { wantsNewTab } from "./Tabs";
 import { ask, confirmDialog, notify } from "./Dialog";
 import { Icon } from "./Icons";
 import { ImportDialog } from "./Import";
+import { ShareDialog } from "./Share";
 
 const EMOJI: Partial<Record<Kind, string>> = { file: "📎", map: "🗺️", link: "📐" };
 
@@ -52,19 +53,36 @@ interface TreeProps {
   user?: string;
   canExport?: boolean;
   rootId?: string; // show the content of this area (a team's) instead of the list of areas
+  head?: string; // a team's tree starts with its name (team icon, visibility, "+" menu) instead of big buttons at the bottom
   scope?: "public" | "other"; // list only the public areas ("Alle Anwender") or the areas outside every team
 }
 
-export function Tree({ selected, onSelect, version, onChanged, space = "wiki", canCreateRoot = true, onOpenTab, user = "", canExport = false, rootId, scope }: TreeProps) {
+export function Tree({ selected, onSelect, version, onChanged, space = "wiki", canCreateRoot = true, onOpenTab, user = "", canExport = false, rootId, scope, head }: TreeProps) {
   treeUser = user;
   // With rootId the top level holds the area's folders and pages, so new items go into that area.
   const rootNode = rootId ? ({ id: rootId, kind: "area" } as NodeSummary) : null;
   const topKinds = rootId ? CHILD_KINDS[space] : ROOT_KINDS[space];
   const [menu, setMenu] = useState<Menu | null>(null);
   const [importing, setImporting] = useState<NodeSummary | null>(null);
+  const [sharing, setSharing] = useState<NodeSummary | null>(null);
+  const [plus, setPlus] = useState<{ x: number; y: number } | null>(null);
+  const [vis, setVis] = useState<NodeSummary["vis"]>();
+  // The team head shows who may see the team's area ("Nur IT"), taken from the area's entry in the top-level list.
+  useEffect(() => {
+    if (!head || !rootId) return;
+    api<NodeSummary[]>("/api/tree?space=wiki").then((l) => setVis(l.find((n) => n.id === rootId)?.vis)).catch(() => undefined);
+  }, [head, rootId, version]);
+  const [incoming, setIncoming] = useState<NodeSummary[]>([]);
+  // Folders other teams shared with the user's teams, below the team's own tree.
+  useEffect(() => {
+    if (!rootId) return;
+    api<{ id: string; title: string; from_team: string; edit: boolean }[]>("/api/shares/incoming")
+      .then((r) => setIncoming(r.map((x) => ({ id: x.id, kind: "folder", title: x.title, status: "published", position: 0, has_children: true, writable: x.edit, from: x.from_team }))))
+      .catch(() => setIncoming([]));
+  }, [rootId, version]);
 
   useEffect(() => {
-    const close = () => setMenu(null);
+    const close = () => { setMenu(null); setPlus(null); };
     window.addEventListener("click", close);
     window.addEventListener("keydown", close);
     return () => {
@@ -121,11 +139,36 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
         }
       }}
     >
+      {head && (
+        <div className={`tree-head${selected === rootId ? " selected" : ""}`}>
+          <button className="tree-head-name" onClick={() => onSelect(null)} title={head}>
+            <Icon name="users" size={16} /><span className="label-text">{head}</span>
+          </button>
+          {vis && vis.kind !== "public" && <span className={`vis-badge vis-${vis.kind}`} title={vis.text}>{vis.badge}</span>}
+          {canCreateRoot && (
+            <button className="tree-plus" aria-label="Neu anlegen" aria-haspopup="menu" aria-expanded={!!plus} title="Neuer Ordner oder neue Seite"
+              onClick={(e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setMenu(null); setPlus(plus ? null : { x: r.left, y: r.bottom + 4 }); }}>+</button>
+          )}
+        </div>
+      )}
       <Branch parent={rootId ?? null} scope={scope} space={space} depth={0} selected={selected} onSelect={onSelect} version={version}
-        onMenu={setMenu} onMove={move} onOpenTab={onOpenTab} />
-      {canCreateRoot && topKinds.map((k) => (
+        onMenu={setMenu} onMove={move} onOpenTab={onOpenTab} dots={!!head} />
+      {canCreateRoot && !head && topKinds.map((k) => (
         <button key={k} className="tree-add" onClick={() => create(k, rootNode)}>+ {NEW_LABEL[k]}</button>
       ))}
+      {plus && (
+        <ul className="menu" role="menu" style={{ left: plus.x, top: plus.y }} onClick={(e) => e.stopPropagation()}>
+          {topKinds.map((k) => <MenuItem key={k} label={NEW_LABEL[k]} onClick={() => { setPlus(null); create(k, rootNode); }} />)}
+        </ul>
+      )}
+      {incoming.length > 0 && (
+        <ul className="branch" role="group" aria-label="Von anderen Teams">
+          <li className="tree-heading" role="presentation">Von anderen Teams</li>
+          {incoming.map((n) => (
+            <Item key={n.id} node={n} depth={0} selected={selected} onSelect={onSelect} version={version} onMenu={setMenu} onMove={move} onOpenTab={onOpenTab} />
+          ))}
+        </ul>
+      )}
       {m && (
         <ul className="menu" role="menu" style={{ left: m.x, top: m.y }} onClick={(e) => e.stopPropagation()}>
           {!m.node && topKinds.map((k) => (
@@ -137,6 +180,9 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
           ))}
           {m.node && space === "wiki" && m.node.writable !== false && isContainer(m.node.kind) && (
             <MenuItem label="Ordner importieren …" onClick={() => { setMenu(null); setImporting(m.node); }} />
+          )}
+          {m.node && space === "wiki" && m.node.can_share && (
+            <MenuItem label="An anderes Team freigeben …" onClick={() => { setMenu(null); setSharing(m.node); }} />
           )}
           {m.node && space === "wiki" && canExport && isContainer(m.node.kind) && (
             <MenuItem label="Ordner exportieren" onClick={() => { setMenu(null); exportFolder(m.node!); }} />
@@ -160,6 +206,7 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
           )}
         </ul>
       )}
+      {sharing && <ShareDialog node={sharing} onClose={() => setSharing(null)} onSaved={onChanged} />}
       {importing && <ImportDialog parent={importing.id} title={importing.title} onClose={() => setImporting(null)} onDone={onChanged} />}
     </div>
   );
@@ -197,6 +244,7 @@ interface BranchProps {
   onMenu: (m: Menu) => void;
   onMove: (id: string, target: string | null) => void;
   onOpenTab?: (id: string) => void;
+  dots?: boolean; // visibility as a dot only (the team head already says who may see the area)
 }
 
 function Branch({ parent, space = "wiki", scope, ...rest }: BranchProps) {
@@ -222,7 +270,7 @@ function Branch({ parent, space = "wiki", scope, ...rest }: BranchProps) {
   );
 }
 
-function Item({ node, depth, selected, onSelect, version, onMenu, onMove, onOpenTab }: { node: NodeSummary } & Omit<BranchProps, "parent" | "space">) {
+function Item({ node, depth, selected, onSelect, version, onMenu, onMove, onOpenTab, dots }: { node: NodeSummary } & Omit<BranchProps, "parent" | "space">) {
   const [open, setOpen] = useState(() => loadOpen().has(node.id));
   const [dropTarget, setDropTarget] = useState(false);
   const container = isContainer(node.kind);
@@ -278,15 +326,20 @@ function Item({ node, depth, selected, onSelect, version, onMenu, onMove, onOpen
           onAuxClick={(e) => { if (e.button === 1 && onOpenTab) onOpenTab(node.id); }}>
           <KindIcon kind={node.kind} /><span className="label-text">{node.title}</span>
           {node.status === "draft" && <span className="badge">Entwurf</span>}
+          {node.from && <small className="muted share-from">von {node.from}</small>}
         </button>
-        {node.vis && node.vis.kind !== "public" && (depth === 0
+        {node.shared && node.shared.length > 0 && (
+          <span className="share-mark" tabIndex={0} role="img" title={`Freigegeben an: ${node.shared.join(", ")}`}
+            aria-label={`Freigegeben an: ${node.shared.join(", ")}`}><Icon name="share" size={12} /></span>
+        )}
+        {node.vis && node.vis.kind !== "public" && !node.shared?.length && (depth === 0 && !dots
           ? <span className={`vis-badge vis-${node.vis.kind}`} title={node.vis.text}>{node.vis.badge}</span>
           // Below the top level only a dot with a tooltip, so the folder name keeps its room.
           : <span className={`vis-dot vis-${node.vis.kind}`} title={node.vis.text} role="img" aria-label={node.vis.text} />)}
       </div>
       {container && open && (
         <Branch parent={node.id} depth={depth + 1} selected={selected} onSelect={onSelect} version={version}
-          onMenu={onMenu} onMove={onMove} onOpenTab={onOpenTab} />
+          onMenu={onMenu} onMove={onMove} onOpenTab={onOpenTab} dots={dots} />
       )}
     </li>
   );

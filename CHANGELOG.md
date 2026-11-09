@@ -2,6 +2,27 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.8.0] - 2026-11-09
+
+### Added
+- Fresh installations create the administrator `admin` (password `admin1234!`) on their first start; the first login forces a new password before anything else works. Existing installations are not touched, `scripts/createsuperuser.sh` stays available
+- Own password change in the profile menu (old password, new one twice, checked by the Django validators, locked after repeated failures)
+- Personal area per user ("Privat"): readable only by its owner, not even by administrators; admins can delete a user, the account and its area are kept for a retention period (setting) and can be restored together
+- Folders can be shared with other teams (right click, read or edit); the folder gets a small icon whose tooltip names the teams, receiving teams see it under "Von anderen Teams" and cannot share it on or change rights in it. Team setting: only the leaders or every member may share
+- Search: filter chips (everything, private, teams; several at once), grouped hits with marked words, and an "Exakt" mode (whole words, "quoted phrases", no stems or prefixes); filters only narrow what the user may read
+- Pages can mix own text and files: an embedded document is a collapsed block that opens editable right on the page (Collabora or OnlyOffice); screenshots and image files can be pasted or dropped into the editor, other dropped files are embedded
+- A team can be created without members and filled later
+
+### Changed
+- The functions "Aufgaben" and "Netzwerk" are off for existing teams after the update (migration 0022) until an administrator releases them per team; new teams start with them off
+- The per-folder rights matrix in the team dialog is gone; teams share folders instead (the FAQ keeps its folder table)
+- The sidebar of a team starts with a head (team icon, name, who may see it, "+" menu for a new folder or page) instead of two large buttons at the bottom
+- Group names of teams whose name already starts with "Team" lose the doubled word ("Team IT · Lesen", migration 0024)
+- Private areas show the badge "Privat" instead of "Nur Admin"
+
+### Fixed
+- The dialog title of a team no longer reads "Team Team IT"
+
 ## [0.7.0] - 2026-11-05
 
 ### Added

@@ -19,6 +19,9 @@ def legacy_groups(db):
 def user(db):
     u = User.objects.create_user("tester", password="x-test-pass-1")
     u.groups.add(Group.objects.get(name="IT-Team"))  # existing accounts were migrated into IT-Team
+    # Aufgaben and Netzwerk need a team an admin released them for; this team has everything on.
+    from .models import Team, TeamMember
+    TeamMember.objects.create(team=Team.objects.create(name="Fixture", disabled_features=[]), user=u)
     return u
 
 
@@ -634,11 +637,17 @@ def test_karte_areas(client):
 
 # --- v0.6: teams, rights per folder, download right, trash, audit ----------------------------------------------
 
-def _team(admin, name, leader, members=()):
+def _team(admin, name, leader, members=(), released=True):
+    """Creates a team; by default an admin also releases Aufgaben and Netzwerk (new teams start without them)."""
     rows = [{"user": leader.id, "is_leader": True}] + [{"user": u.id, "can_write": w} for u, w in members]
     r = admin.post("/api/teams", {"name": name, "members": rows}, format="json")
     assert r.status_code == 201, r.content
-    return r.json()
+    team = r.json()
+    if released:
+        r = admin.patch(f"/api/teams/{team['id']}", {"features": {"tasks": True, "network": True}}, format="json")
+        assert r.status_code == 200, r.content
+        team = r.json()
+    return team
 
 
 def test_team_area_visible_only_to_members(admin, db):
@@ -706,20 +715,78 @@ def test_rights_per_folder(admin, db):
     admin.put("/api/admin/folders/save", {"faq": True, "rows": [{"id": fsub, "inherit": True}]}, format="json")
     assert APIClient().get(f"/api/nodes/{fpage}").status_code == 200
     assert [r["title"] for r in admin.get("/api/admin/folders?faq=1").json()["rows"]][:1] == ["FAQ für Anwender"]
-    # Team view: a leader sees only the team's area; leaving "erben" keeps the other groups' access
+    # The per-team folder matrix is gone: folders are shared with other teams (test_share_folder_with_other_teams)
     lead, lc = _member("lea")
     team = _team(admin, "Netz", lead)
-    tf = create(lc, "folder", "Intern", team["area"])
-    data = lc.get(f"/api/admin/folders?team={team['id']}").json()
-    assert [r["title"] for r in data["rows"]] == ["Netz", "Intern"] and [p["label"] for p in data["principals"]] == ["Netz"]
+    assert lc.get(f"/api/admin/folders?team={team['id']}").status_code == 404 and admin.get(f"/api/admin/folders?team={team['id']}").status_code == 404
+    assert lc.put("/api/admin/folders/save", {"team": team["id"], "rows": []}, format="json").status_code == 404
     assert lc.get("/api/admin/folders").status_code == 403 and lc.get("/api/admin/folders?faq=1").status_code == 403
-    key = data["principals"][0]["key"]
-    r = lc.put("/api/admin/folders/save", {"team": team["id"], "rows": [{"id": tf, "inherit": False, "cells": {key: {"see": True, "edit": False}}}]}, format="json")
-    assert r.status_code == 200
-    row = {x["title"]: x for x in lc.get(f"/api/admin/folders?team={team['id']}").json()["rows"]}["Intern"]
-    assert row["inherit"] is False and row["cells"][key] == {"see": True, "edit": False}
-    other = admin.get(f"/api/admin/folders?team={team['id']}").json()  # admin sees every non-FAQ folder for this team
-    assert any(r["title"] == "Doku" for r in other["rows"]) and not any(r["title"] == "FAQ für Anwender" for r in other["rows"])
+
+
+def test_share_folder_with_other_teams(admin, db):
+    from .models import AuditLog
+    la, lac = _member("lea"); ma, mac = _member("mia"); lb, lbc = _member("leo"); mb, mbc = _member("max")
+    a = _team(admin, "Netz", la, [(ma, True)])
+    b = _team(admin, "Team IT", lb, [(mb, False)])
+    folder = create(lac, "folder", "Gemeinsam", a["area"])
+    page = create(lac, "page", "Anleitung", folder)
+    other = create(lac, "folder", "Intern", a["area"])
+    shares = lambda c, n=folder: c.get(f"/api/nodes/{n}/shares")
+    put = lambda c, teams, n=folder: c.put(f"/api/nodes/{n}/shares", {"teams": teams}, format="json")
+    # Nothing is visible to the other team before the leader shares.
+    assert mbc.get(f"/api/nodes/{folder}").status_code == 404 and mbc.get("/api/shares/incoming").json() == []
+    # Only the leader of the owning team (and admins) share: members, the other team's leader and anonymous visitors cannot.
+    for c in (mac, lbc, mbc, APIClient()):
+        assert put(c, [{"team": b["id"], "edit": False}]).status_code in (403, 404)
+    assert put(lbc, [{"team": b["id"]}], other).status_code in (403, 404)
+    # Validation: the own team, unknown teams, pages and areas are refused.
+    assert put(lac, [{"team": a["id"]}]).status_code == 400 and put(lac, [{"team": 99999}]).status_code == 400
+    assert put(lac, [{"team": b["id"]}], page).status_code == 400 and put(lac, [{"team": b["id"]}], a["area"]).status_code == 400
+    # Read-only share: the other team sees the folder and what is below it, nothing else, and cannot write.
+    r = put(lac, [{"team": b["id"], "edit": False}])
+    assert r.status_code == 200 and r.json()["shared"] == [{"team": b["id"], "name": "Team IT", "edit": False}]
+    assert mbc.get(f"/api/nodes/{folder}").status_code == 200 and mbc.get(f"/api/nodes/{page}").status_code == 200
+    assert mbc.get(f"/api/nodes/{other}").status_code == 404 and mbc.get(f"/api/nodes/{a['area']}").status_code == 404
+    assert [n["id"] for n in mbc.get(f"/api/tree?parent={folder}").json()] == [page]
+    assert mbc.put(f"/api/pages/{page}/content", {"html": "<p>x</p>", "base_version": 1}, format="json").status_code == 403
+    # The receiving team neither hands the folder on nor changes sharing or rights in it: only the owning team (and admins) do.
+    c3 = _team(admin, "Dritte", _member("dora")[0])
+    sub = create(lac, "folder", "Unter", folder)
+    for c in (lbc, mbc):
+        assert put(c, [{"team": c3["id"], "edit": False}]).status_code == 403  # no re-share to a third team
+        assert put(c, [], sub).status_code == 403 and put(c, [{"team": c3["id"]}], sub).status_code == 403
+        assert c.put(f"/api/nodes/{folder}/permissions", {"rows": []}, format="json").status_code in (403, 404)
+        assert c.get(f"/api/nodes/{folder}/shares").json()["can_manage"] is False
+    assert {n["title"]: n["can_share"] for n in lbc.get(f"/api/tree?parent={folder}").json() if n["kind"] == "folder"} == {"Unter": False}
+    assert [s["team"] for s in shares(lac).json()["shared"]] == [b["id"]]  # nothing changed
+    # Inside the shared folder the page opens in the receiving team's tab and its path starts at the shared folder.
+    d = mbc.get(f"/api/nodes/{page}").json()
+    assert d["via_team"] == b["id"] and [x["id"] for x in d["breadcrumb"]] == [folder] and "via_team" not in lac.get(f"/api/nodes/{page}").json()
+    assert mbc.get(f"/api/nodes/{folder}").json()["breadcrumb"] == []
+    # Everyone who may read the folder sees to whom it is shared; only the leader may change it.
+    for c in (lac, mac, mbc, lbc):
+        s = shares(c).json()
+        assert s["shared"] == [{"team": b["id"], "name": "Team IT", "edit": False}] and s["owner"] == "Netz"
+        assert s["can_manage"] is (c is lac) and bool(s["teams"]) is (c is lac)
+    tree = {n["title"]: n for n in lac.get(f"/api/tree?parent={a['area']}").json()}
+    assert tree["Gemeinsam"]["shared"] == ["Team IT"] and tree["Gemeinsam"]["can_share"] is True and tree["Intern"]["shared"] == []
+    assert {n["title"]: n["can_share"] for n in mac.get(f"/api/tree?parent={a['area']}").json()} == {"Gemeinsam": False, "Intern": False}
+    # "Von anderen Teams": the target team lists the folder, the owning team does not.
+    inc = mbc.get("/api/shares/incoming").json()
+    assert inc == [{"id": folder, "title": "Gemeinsam", "from_team": "Netz", "edit": False, "to": "Team IT"}] and lbc.get("/api/shares/incoming").json() == inc
+    assert mac.get("/api/shares/incoming").json() == [] and APIClient().get("/api/shares/incoming").status_code in (401, 403)
+    # With edit the other team's writers write; the folder itself still cannot be moved or deleted from there.
+    assert put(lac, [{"team": b["id"], "edit": True}]).json()["shared"][0]["edit"] is True
+    assert lbc.put(f"/api/pages/{page}/content", {"html": "<p>x</p>", "base_version": 1}, format="json").status_code == 200
+    assert mbc.put(f"/api/pages/{page}/content", {"html": "<p>y</p>", "base_version": 2}, format="json").status_code == 403  # read-only member of Team IT
+    assert put(lbc, [{"team": c3["id"], "edit": True}]).status_code == 403  # even with edit rights the folder is not theirs to share
+    assert lbc.delete(f"/api/nodes/{folder}").status_code == 403
+    assert lbc.patch(f"/api/nodes/{folder}", {"parent": None}, format="json").status_code == 403
+    assert lbc.patch(f"/api/nodes/{folder}", {"title": "Umbenannt"}, format="json").status_code == 200  # renaming is not taking it away
+    # Unsharing takes everything away again; admins may share too; every change is in the audit log.
+    assert put(lac, []).json()["shared"] == [] and mbc.get(f"/api/nodes/{folder}").status_code == 404 and mbc.get("/api/shares/incoming").json() == []
+    assert put(admin, [{"team": b["id"], "edit": False}]).status_code == 200 and mbc.get(f"/api/nodes/{page}").status_code == 200
+    assert AuditLog.objects.filter(action="permissions", details__has_key="freigabe").count() == 4
 
 
 def test_trash_restore_purge_and_audit(admin, db):
@@ -982,31 +1049,58 @@ def _feats(c):
     return c.get("/api/auth/me").json()["features"]
 
 
-def test_team_features_admin_only_and_default_on(admin, db):
-    lead, lc = _member("lea")
-    team = _team(admin, "Netz", lead)
-    assert team["features"] == dict.fromkeys(ALL, True)
-    assert lc.patch(f"/api/teams/{team['id']}", {"features": {"wiki": False}}, format="json").status_code == 403  # leaders: only tasks + network
-    assert _feats(lc) == ALL
-    assert admin.patch(f"/api/teams/{team['id']}", {"features": {"nope": False}}, format="json").status_code == 400
-    assert _features(admin, team, tasks=False)["features"]["tasks"] is False
-    assert _feats(lc) == ["export", "faq", "network", "wiki"]
-
-
-def test_leader_switches_tasks_and_network_for_the_team_members_cannot(admin, db):
+def test_new_team_has_tasks_and_network_off_until_an_admin_releases_them(admin, db):
     lead, lc = _member("lea")
     mem, mc = _member("max")
-    team = _team(admin, "Netz", lead)
-    admin.patch(f"/api/teams/{team['id']}", {"members": [{"user": lead.id, "is_leader": True}, {"user": mem.id}]}, format="json")
+    team = _team(admin, "Netz", lead, [(mem, False)], released=False)
+    assert team["features"] == {**dict.fromkeys(ALL, True), "tasks": False, "network": False}
+    assert _feats(lc) == ["export", "faq", "wiki"] and _feats(mc) == ["export", "faq", "wiki"]
+    assert admin.patch(f"/api/teams/{team['id']}", {"features": {"nope": True}}, format="json").status_code == 400
+    assert _features(admin, team, tasks=True)["features"]["tasks"] is True
+    assert _feats(mc) == ["export", "faq", "tasks", "wiki"]
+
+
+def test_only_admins_switch_functions_not_leaders_or_members(admin, db):
+    lead, lc = _member("lea")
+    mem, mc = _member("max")
+    team = _team(admin, "Netz", lead, [(mem, False)], released=False)
     url = f"/api/teams/{team['id']}"
-    assert mc.patch(url, {"features": {"tasks": False}}, format="json").status_code in (403, 404)
-    assert _feats(mc) == ALL
-    r = lc.patch(url, {"features": {"tasks": False, "network": False}}, format="json")
-    assert r.status_code == 200 and not r.json()["features"]["tasks"] and not r.json()["features"]["network"]
+    for c in (lc, mc):
+        for flags in ({"tasks": True}, {"network": True}, {"wiki": False}):
+            assert c.patch(url, {"features": flags}, format="json").status_code in (403, 404)
     assert _feats(mc) == ["export", "faq", "wiki"]
-    assert mc.get("/api/tasks").status_code in (403, 404)
-    assert lc.patch(url, {"features": {"tasks": True}}, format="json").status_code == 200
+    _features(admin, team, tasks=True, network=True)
+    assert _feats(mc) == ALL
+    assert lc.patch(url, {"features": {"tasks": False}}, format="json").status_code == 403
     assert "tasks" in _feats(mc)
+    _features(admin, team, tasks=False)
+    assert "tasks" not in _feats(mc)
+
+
+def test_without_release_tasks_and_network_are_closed_in_the_api(admin, db):
+    """The check sits in the backend: every task and network route answers 403 (or hides the node), admins excepted."""
+    lead, lc = _member("lea")
+    team = _team(admin, "Netz", lead, released=False)
+    mapfolder = admin.post("/api/nodes", {"kind": "folder", "title": "Netz", "space": "karte"}, format="json").json()["id"]
+    plan = admin.post("/api/nodes", {"kind": "map", "title": "Plan", "parent": mapfolder}, format="json").json()["id"]
+    from .models import NodePermission
+    NodePermission.objects.create(node_id=mapfolder, group=Group.objects.get(pk=team_group(team, "read_group")), can_read=True)
+    sec = admin.post("/api/tasks/sections", {"title": "x"}, format="json").json()["id"]
+    task = admin.post("/api/tasks", {"title": "t"}, format="json").json()["id"]
+    calls = [("get", "/api/tasks"), ("post", "/api/tasks"), ("get", "/api/tasks/people"), ("get", "/api/tasks/sections"),
+             ("post", "/api/tasks/sections"), ("patch", f"/api/tasks/sections/{sec}"), ("delete", f"/api/tasks/sections/{sec}"),
+             ("post", f"/api/tasks/sections/{sec}/move"), ("post", f"/api/tasks/{task}/move"), ("get", f"/api/tasks/{task}/history"),
+             ("patch", f"/api/tasks/{task}"), ("delete", f"/api/tasks/{task}"), ("get", "/api/integrations/todoist"),
+             ("get", "/api/tree?space=karte"), ("post", "/api/nodes"), ("get", "/api/pages"), ("get", f"/api/maps/{plan}/status")]
+    for method, url in calls:
+        r = getattr(lc, method)(url, {"title": "x", "kind": "folder", "space": "karte"}, format="json")
+        assert r.status_code in (403, 404), (method, url, r.status_code)
+    assert lc.get(f"/api/nodes/{plan}").status_code == 404
+    assert lc.get("/api/tree?space=karte").status_code == 403
+    assert admin.get("/api/tasks").status_code == 200 and admin.get("/api/tree?space=karte").status_code == 200
+    _features(admin, team, tasks=True, network=True)
+    assert lc.get("/api/tasks").status_code == 200 and lc.get("/api/tree?space=karte").status_code == 200
+    assert lc.get(f"/api/nodes/{plan}").status_code == 200
 
 
 def test_user_has_union_of_team_features_admin_and_teamless_have_all(admin, db):
@@ -1034,7 +1128,7 @@ def test_disabled_functions_close_the_matching_parts(admin, db):
     assert [n["title"] for n in lc.get("/api/tree?space=karte").json()] == ["Netz"]
     _features(admin, team, wiki=False, network=False, faq=False, export=False)
     assert lc.get(f"/api/nodes/{page}").status_code == 404
-    assert lc.get("/api/tree?space=karte").json() == []
+    assert lc.get("/api/tree?space=karte").status_code == 403
     assert lc.get("/api/tree").json() == []  # no team area, no public FAQ
     assert lc.get(f"/api/nodes/{page}/export?type=pdf").status_code == 404
     assert admin.get(f"/api/nodes/{page}").status_code == 200
@@ -1190,10 +1284,10 @@ def test_nav_data_teams_other_areas_and_tree_scopes(admin, db):
     team = _team(admin, "Netz", a)
     _team(admin, "Büro", _member("bob")[0])
     create(admin, "area", "Handbücher")
-    nav = ac.get("/api/auth/me").json()["nav"]
+    nav = ac.get("/api/auth/me").json()["nav"]; nav.pop("private")
     faq = str(Node.objects.get(title="FAQ für Anwender").id)
     assert nav == {"teams": [{"id": team["id"], "name": "Netz", "area": team["area"], "write": True}], "other": False, "public_areas": [faq]}
-    assert nc.get("/api/auth/me").json()["nav"] == {"teams": [], "other": False, "public_areas": [faq]}
+    assert {k: v for k, v in nc.get("/api/auth/me").json()["nav"].items() if k != "private"} == {"teams": [], "other": False, "public_areas": [faq]}
     adm = admin.get("/api/auth/me").json()["nav"]
     assert [t["name"] for t in adm["teams"]] == ["Büro", "Netz"] and adm["other"] is True
     titles = lambda c, s: [n["title"] for n in c.get(f"/api/tree?scope={s}").json()]
@@ -1243,7 +1337,7 @@ def test_user_without_team_or_rights_only_has_the_faq(admin, db):
 
 def test_user_with_old_global_rights_keeps_all_functions(db):
     c = _member("ina", "IT-Team")[1]  # no team, but rights from the legacy global group
-    assert c.get("/api/auth/me").json()["features"] == ALL
+    assert c.get("/api/auth/me").json()["features"] == ["export", "faq", "wiki"]  # Aufgaben/Netzwerk need a team's release
     assert c.post("/api/nodes", {"kind": "area", "title": "Alt"}, format="json").status_code == 201
 
 
@@ -1278,7 +1372,7 @@ def test_functions_are_enforced_by_the_api_not_only_by_the_navigation(admin, db)
     _features(admin, team, network=False)
     assert lc.get(f"/api/nodes/{mapf}").status_code == 404
     assert lc.post("/api/nodes", {"kind": "folder", "title": "Neu", "space": "karte"}, format="json").status_code == 403
-    assert lc.get("/api/tree?space=karte").json() == []
+    assert lc.get("/api/tree?space=karte").status_code == 403
     # Tasks off: 403 everywhere in the tasks API.
     _features(admin, team, tasks=False)
     assert lc.get("/api/tasks").status_code == 403 and lc.get("/api/tasks/people").status_code == 403
@@ -1661,8 +1755,9 @@ def test_todoist_choosing_another_project_starts_over_without_touching_tasks(adm
 
 
 def test_health_reports_version(client, db):
+    from django.conf import settings
     r = client.get("/api/health").json()
-    assert r["ok"] and r["version"].startswith("0.7")
+    assert r["ok"] and r["version"] == (settings.BASE_DIR / "VERSION").read_text().strip()  # follows the release, not a hard-coded minor
 
 
 # --- v0.7 security: login brute-force lock, gate for the document servers --------------------------------------
@@ -1716,3 +1811,280 @@ def test_login_lock_per_address_and_old_failures_expire(db):
 def test_auth_gate_for_caddy(client, db):
     assert APIClient().get("/api/auth/gate").status_code == 401
     assert client.get("/api/auth/gate").status_code == 204
+
+
+# --- v0.8: private area ("Mein Bereich") -------------------------------------------------------------------------
+
+def _private(c):
+    return c.get("/api/auth/me").json()["nav"]["private"]
+
+
+def test_private_area_is_created_once_and_only_the_owner_uses_it(admin, db):
+    ann, ac = _member("ann")
+    bob, bc = _member("bob", "IT-Team")  # global write rights must not reach it
+    area = _private(ac)
+    assert area and _private(ac) == area and Node.objects.filter(owner=ann).count() == 1
+    page = create(ac, "page", "Geheim", area)
+    assert ac.put(f"/api/pages/{page}/content", {"html": "<p>streng geheim</p>", "base_version": 1}, format="json").status_code == 200
+    assert ac.get(f"/api/nodes/{page}").status_code == 200
+    assert [n["id"] for n in ac.get("/api/tree?scope=private").json()] == [area]
+    assert ac.get("/api/tree?scope=private").json()[0]["vis"] == {"kind": "private", "badge": "Privat", "text": "Nur du"}  # not "Nur Admin"
+    assert ac.get(f"/api/nodes/{page}/export?type=md").status_code in (200, 403)  # 403 only by the download right
+    for who in (bc, admin):
+        assert who.get(f"/api/nodes/{area}").status_code == 404
+        assert who.get(f"/api/nodes/{page}").status_code == 404
+        assert who.put(f"/api/pages/{page}/content", {"html": "x", "base_version": 2}, format="json").status_code in (403, 404)
+        assert who.post("/api/nodes", {"kind": "page", "title": "Fremd", "parent": area}, format="json").status_code in (403, 404)
+        assert who.get(f"/api/tree?parent={area}").status_code in (403, 404)
+        assert who.get(f"/api/nodes/{page}/export?type=md").status_code in (403, 404)
+        assert page not in str(who.get("/api/tree").json()) and str(area) not in str(who.get("/api/tree?scope=other").json())
+        assert area not in [n["id"] for n in who.get("/api/tree?scope=private").json()]
+        assert "streng" not in who.get("/api/search?q=streng").content.decode()
+    assert ac.get("/api/search?q=streng").json() != []
+    assert "Mein Bereich" not in admin.get("/api/admin/folders").content.decode()
+
+
+def test_private_trash_stats_and_user_deletion(admin, db):
+    ann, ac = _member("ann")
+    area = _private(ac)
+    page = create(ac, "page", "Weg", area)
+    assert ac.delete(f"/api/nodes/{page}").status_code in (200, 204)
+    assert [i["id"] for i in ac.get("/api/trash").json()["items"]] == [page]
+    assert admin.get("/api/trash").json()["items"] == []
+    assert admin.post(f"/api/trash/{page}/restore").status_code == 404
+    assert ac.post(f"/api/trash/{page}/restore").status_code == 200
+    assert "Mein Bereich" not in str(admin.get("/api/stats").content.decode())
+    from django.db.models import ProtectedError
+    with pytest.raises(ProtectedError):
+        ann.delete()  # a hard delete never leaves an ownerless (admin-visible) area behind
+    assert Node.objects.filter(owner=ann).exists()
+
+
+def test_deleting_a_user_keeps_user_and_private_area_hidden_until_restored_together(admin, db):
+    from datetime import timedelta
+    from django.core.management import call_command
+    from django.utils import timezone
+    from .models import UserSettings
+    ann, ac = _member("ann")
+    area = _private(ac)
+    page = create(ac, "page", "Privat", area)
+    r = admin.delete(f"/api/admin/users/{ann.id}")
+    assert r.status_code == 200 and not r.json()["is_active"] and r.json()["deleted_at"]
+    ann.refresh_from_db()
+    assert not ann.is_active and Node.objects.get(pk=area).deleted_at
+    assert admin.get(f"/api/nodes/{page}").status_code == 404 and admin.get(f"/api/nodes/{area}").status_code == 404
+    assert [i for i in admin.get("/api/trash").json()["items"] if i["id"] == area] == []
+    assert admin.patch(f"/api/admin/users/{ann.id}", {"is_active": True}, format="json").status_code == 400
+    assert admin.get("/api/admin/retention").json() == {"user_retention_days": 30}
+    assert admin.put("/api/admin/retention", {"user_retention_days": 10}, format="json").status_code == 200
+    assert admin.put("/api/admin/retention", {"user_retention_days": 0}, format="json").status_code == 400
+    # restore inside the retention: both come back, only the owner sees the content
+    assert admin.post(f"/api/admin/users/{ann.id}/restore").status_code == 200
+    c2 = APIClient(); c2.force_login(User.objects.get(pk=ann.id))
+    assert c2.get(f"/api/nodes/{page}").status_code == 200 and admin.get(f"/api/nodes/{page}").status_code == 404
+    # after the retention the timer command removes user and area for good, and restore is gone
+    admin.delete(f"/api/admin/users/{ann.id}")
+    call_command("purge_trash")
+    assert User.objects.filter(pk=ann.id).exists()
+    UserSettings.objects.filter(user=ann).update(deleted_at=timezone.now() - timedelta(days=11))
+    assert admin.post(f"/api/admin/users/{ann.id}/restore").status_code == 404
+    call_command("purge_trash")
+    assert not User.objects.filter(pk=ann.id).exists() and not Node.objects.filter(pk=area).exists()
+
+
+def test_team_group_names_do_not_double_the_word_team(admin, db):
+    from django.contrib.auth.models import Group
+    lead, _ = _member("tom")
+    t1 = _team(admin, "Team IT", lead)
+    t2 = _team(admin, "Netz", _member("nina")[0])
+    names = set(Group.objects.filter(name__contains="·").values_list("name", flat=True))
+    assert {"Team IT · Lesen", "Team IT · Schreiben", "Team Netz · Lesen", "Team Netz · Schreiben"} <= names
+    assert not any(n.startswith("Team Team") for n in names) and t1["name"] == "Team IT" and t2["name"] == "Netz"
+
+
+def test_share_setting_who_may_share_leader_or_members(admin, db):
+    la, lac = _member("lea"); wa, wac = _member("walt"); ra, rac = _member("rita"); lb, lbc = _member("leo")
+    a = _team(admin, "Netz", la, [(wa, True), (ra, False)])
+    b = _team(admin, "Team IT", lb)
+    folder = create(lac, "folder", "Gemeinsam", a["area"])
+    put = lambda c, teams: c.put(f"/api/nodes/{folder}/shares", {"teams": teams}, format="json")
+    ro = [{"team": b["id"], "edit": False}]
+    # Default: only the leader shares; members of the owning team see the folder but cannot share it.
+    assert next(t for t in admin.get("/api/teams").json() if t["id"] == a["id"])["share_by_members"] is False
+    assert put(wac, ro).status_code == 403 and put(rac, ro).status_code == 403
+    assert wac.get(f"/api/nodes/{folder}/shares").json()["can_manage"] is False
+    # Only the leader (or an admin) changes the setting, and it is validated.
+    assert wac.patch(f"/api/teams/{a['id']}", {"share_by_members": True}, format="json").status_code in (403, 404)
+    assert lac.patch(f"/api/teams/{a['id']}", {"share_by_members": "ja"}, format="json").status_code == 400
+    assert lac.patch(f"/api/teams/{a['id']}", {"share_by_members": True}, format="json").json()["share_by_members"] is True
+    # Now every member of the team shares; readers only pass on read access, writers may grant edit too.
+    assert wac.get(f"/api/nodes/{folder}/shares").json()["can_manage"] is True
+    assert {n["title"]: n["can_share"] for n in wac.get(f"/api/tree?parent={a['area']}").json()} == {"Gemeinsam": True}
+    assert put(rac, [{"team": b["id"], "edit": True}]).status_code == 403
+    assert put(rac, ro).status_code == 200 and put(wac, [{"team": b["id"], "edit": True}]).status_code == 200
+    assert put(rac, [{"team": b["id"], "edit": True}]).status_code == 200  # edit was already there: nothing new is granted
+    assert put(lbc, ro).status_code in (403, 404)  # the other team's leader still cannot
+    # Back to leaders only.
+    assert lac.patch(f"/api/teams/{a['id']}", {"share_by_members": False}, format="json").status_code == 200
+    assert put(wac, []).status_code == 403 and put(lac, []).status_code == 200
+
+
+def test_search_all_words_any_order_and_filters_never_widen_the_rights(admin, db):
+    from .models import Node
+    la, lac = _member("lea"); ma, mac = _member("mia"); lb, lbc = _member("leo")
+    a = _team(admin, "Netz", la, [(ma, True)]); b = _team(admin, "Team IT", lb)
+    def page(c, title, parent, html):
+        p = create(c, "page", title, parent)
+        assert c.put(f"/api/pages/{p}/content", {"html": html, "base_version": 1}, format="json").status_code == 200
+        return p
+    shared = create(lac, "folder", "Gemeinsam", a["area"])
+    p1 = page(lac, "Druckertreiber", a["area"], "<p>Treiber für Windows und Linux</p>")
+    p2 = page(lac, "Anleitung Linux", a["area"], "<p>Installation ohne Windows</p>")
+    p3 = page(lac, "Freigegeben", shared, "<p>Treiber im gemeinsamen Ordner</p>")
+    p4 = page(lbc, "Eigene IT-Seite", b["area"], "<p>Treiber für Windows beim IT-Team</p>")
+    private = mac.get("/api/auth/me").json()["nav"]["private"]
+    p5 = page(mac, "Privatnotiz", private, "<p>Treiber Windows geheim</p>")
+    titles = lambda c, q, *scopes: sorted(h["title"] for h in c.get("/api/search", {"q": q, "scope": list(scopes)}).json())
+    # Every word has to occur, in title or content, in any order (not just the exact phrase).
+    assert titles(lac, "windows treiber") == titles(lac, "treiber windows") == ["Druckertreiber"]
+    assert titles(lac, "linux windows") == ["Anleitung Linux", "Druckertreiber"]  # one word in the title, one in the text
+    assert titles(lac, "treiber") == ["Druckertreiber", "Freigegeben"] and titles(lac, "linux treiber windows nichtda") == []
+    # Filters narrow, never widen: team, private, several at once, all.
+    assert titles(mac, "treiber windows") == ["Druckertreiber", "Privatnotiz"]
+    assert titles(mac, "treiber windows", "private") == ["Privatnotiz"]
+    assert titles(mac, "treiber windows", f"team:{a['id']}") == ["Druckertreiber"]
+    assert titles(mac, "treiber windows", f"team:{a['id']}", "private") == ["Druckertreiber", "Privatnotiz"]
+    assert titles(mac, "treiber windows", "all") == titles(mac, "treiber windows")
+    h = mac.get("/api/search", {"q": "treiber windows"}).json()
+    assert {x["title"]: (x["group"], x["bucket"]) for x in h} == {"Druckertreiber": ("Netz", "team"), "Privatnotiz": ("Privat", "private")}
+    # A team's content stays invisible to people outside it, whatever the filter says; private areas are nobody else's, admins included.
+    assert titles(lbc, "treiber windows", f"team:{a['id']}") == [] and titles(lbc, "treiber windows") == ["Eigene IT-Seite"]
+    assert titles(lbc, "treiber windows", "private") == [] and titles(admin, "treiber windows", "private") == []
+    assert "Privatnotiz" not in titles(admin, "treiber windows") and "Privatnotiz" not in titles(lac, "treiber windows", "private", "all")
+    assert titles(mac, "treiber windows", "team:99999", "gibt:es:nicht") == []
+    # Shared folders belong to the receiving team's filter, only after the share and only what the team may read.
+    assert titles(lbc, "treiber", f"team:{b['id']}") == ["Eigene IT-Seite"]
+    assert lac.put(f"/api/nodes/{shared}/shares", {"teams": [{"team": b["id"], "edit": False}]}, format="json").status_code == 200
+    assert titles(lbc, "treiber", f"team:{b['id']}") == ["Eigene IT-Seite", "Freigegeben"]
+    assert titles(lbc, "treiber", f"team:{a['id']}") == ["Freigegeben"]  # of team A only what was shared
+    assert APIClient().get("/api/search", {"q": "treiber", "scope": ["private"]}).json() == []
+
+
+def test_search_exact_mode_whole_words_and_phrases_with_the_same_rights(admin, db):
+    la, lac = _member("lea"); ma, mac = _member("mia"); lb, lbc = _member("leo")
+    a = _team(admin, "Netz", la, [(ma, True)]); b = _team(admin, "Team IT", lb)
+    def page(c, title, parent, html):
+        p = create(c, "page", title, parent)
+        assert c.put(f"/api/pages/{p}/content", {"html": html, "base_version": 1}, format="json").status_code == 200
+        return p
+    page(lac, "Handbuch", a["area"], "<p>Der Treiber für Windows und Linux wird installiert.</p>")
+    page(lac, "Treibern", a["area"], "<p>Mehrere Treiber-Pakete und Treibern im Archiv.</p>")
+    page(lac, "Druckertreiber", a["area"], "<p>Nur der Druckertreiber hier.</p>")
+    private = mac.get("/api/auth/me").json()["nav"]["private"]
+    page(mac, "Privat", private, "<p>Der Treiber privat</p>")
+    page(lbc, "Fremd", b["area"], "<p>Der Treiber im IT-Team</p>")
+    def titles(c, q, *scopes, match="exact"):
+        return sorted(h["title"] for h in c.get("/api/search", {"q": q, "scope": list(scopes), "match": match}).json())
+    # Contains (default and explicit) keeps prefixes and stems; exact keeps whole words only (case does not matter).
+    both = ["Handbuch", "Treibern"]
+    assert titles(lac, "treiber", match="contains") == titles(lac, "treiber", match="") == titles(lac, "treibern", match="contains") == both  # stems
+    assert titles(lac, "treib", match="contains") == both  # prefix
+    assert titles(lac, "treiber") == titles(lac, "TREIBER") == both  # "Treiber-Pakete" is the whole word "Treiber"; "Druckertreiber" is not
+    assert titles(lac, "treibern") == ["Treibern"] and titles(lac, "treib") == []  # no stems, no prefixes
+    # Several words: each one exactly, any order; "quoted" = the exact phrase in that order.
+    assert titles(lac, "linux windows") == ["Handbuch"] and titles(lac, "windows treibern") == []
+    assert titles(lac, '"windows und linux"') == ["Handbuch"] and titles(lac, '"linux und windows"') == []
+    assert titles(lac, '"für windows" treiber') == ["Handbuch"]
+    h = lac.get("/api/search", {"q": "linux", "match": "exact"}).json()[0]
+    assert "\x02Linux\x03" in h["snippet"] and h["path"] == "Netz"
+    # Same rights as always: another team's pages, other people's private areas and admins' views stay as they are.
+    assert titles(mac, "treiber") == ["Handbuch", "Privat", "Treibern"] and titles(mac, "treiber", "private") == ["Privat"]
+    assert titles(lbc, "treiber") == ["Fremd"] and titles(lbc, "treiber", f"team:{a['id']}") == [] and titles(lbc, "treiber", "private") == []
+    assert "Privat" not in titles(admin, "treiber") and titles(admin, "treiber", "private") == []
+    assert APIClient().get("/api/search", {"q": "treiber", "match": "exact"}).json() == []
+    for q in ['"', '""', '" "', "&|!():*'"]:
+        assert lac.get("/api/search", {"q": q, "match": "exact"}).status_code == 200
+
+
+# --- v0.8: start admin, own password, teams without members -----------------------------------------------------
+
+def test_start_admin_created_once_and_must_change_the_password(db):
+    from django.contrib.auth import get_user_model
+    from django.core.management import call_command
+    from .models import AuditLog, UserSettings
+    U = get_user_model()
+    assert not U.objects.exists()
+    call_command("ensure_start_admin")
+    admin = U.objects.get(username="admin")
+    assert admin.is_superuser and admin.check_password("admin1234!") and UserSettings.objects.get(user=admin).must_change_password
+    call_command("ensure_start_admin")  # idempotent
+    assert U.objects.count() == 1
+    c = APIClient()
+    assert c.post("/api/auth/login", {"username": "admin", "password": "admin1234!"}, format="json").json()["must_change_password"] is True
+    # Until the password is changed nothing but me, logout and the change itself works.
+    r = c.get("/api/tree")
+    assert r.status_code == 403 and r.json()["must_change_password"] is True
+    assert c.get("/api/teams").status_code == 403 and c.get("/api/auth/me").status_code == 200
+    pw = lambda **kw: c.post("/api/auth/password", {"old": "admin1234!", "new": "Sehr-Neues-Passwort-7", "new2": "Sehr-Neues-Passwort-7", **kw}, format="json")
+    assert pw(old="falsch").status_code == 400 and pw(new2="anders").status_code == 400
+    assert pw(new="admin1234!", new2="admin1234!").status_code == 400  # not the old one again
+    assert pw(new="12345678", new2="12345678").status_code == 400  # Django validators (too common)
+    r = pw()
+    assert r.status_code == 200 and r.json()["must_change_password"] is False
+    assert c.get("/api/tree").status_code == 200  # same session, now free
+    assert AuditLog.objects.filter(action="user", details__what="Passwort geändert").count() == 1
+    # The default password works only once: afterwards it is gone, the new one logs in.
+    assert APIClient().post("/api/auth/login", {"username": "admin", "password": "admin1234!"}, format="json").status_code == 400
+    assert APIClient().post("/api/auth/login", {"username": "admin", "password": "Sehr-Neues-Passwort-7"}, format="json").json()["must_change_password"] is False
+
+
+def test_start_admin_is_not_created_on_installations_with_users(db):
+    from django.contrib.auth import get_user_model
+    from django.core.management import call_command
+    get_user_model().objects.create_user("vorhanden", password="x-test-pass-1")
+    call_command("ensure_start_admin")
+    assert list(get_user_model().objects.values_list("username", flat=True)) == ["vorhanden"]
+
+
+def test_own_password_change_for_every_user_and_throttled(admin, db):
+    ann, ac = _member("ann")
+    ok = {"old": "x-test-pass-1", "new": "Neues-Passwort-Ann-9", "new2": "Neues-Passwort-Ann-9"}
+    assert APIClient().post("/api/auth/password", ok, format="json").status_code == 403
+    for i in range(5):
+        assert ac.post("/api/auth/password", {**ok, "old": "falsch"}, format="json").status_code == 400
+    assert ac.post("/api/auth/password", ok, format="json").status_code == 429  # lock, even with the right old password
+    from .models import LoginThrottle
+    LoginThrottle.objects.filter(key__startswith="pwchange:").update(locked_until=None, fails=0)
+    assert ac.post("/api/auth/password", ok, format="json").status_code == 200 and ac.get("/api/tree").status_code == 200
+    assert APIClient().post("/api/auth/login", {"username": "ann", "password": "x-test-pass-1"}, format="json").status_code == 400
+    assert APIClient().post("/api/auth/login", {"username": "ann", "password": "Neues-Passwort-Ann-9"}, format="json").status_code == 200
+
+
+def test_team_may_start_without_members_but_not_without_a_leader_once_it_has_some(admin, db):
+    lead, lc = _member("lea")
+    r = admin.post("/api/teams", {"name": "Leer", "members": []}, format="json")
+    assert r.status_code == 201 and r.json()["members"] == [] and r.json()["area"]
+    tid = r.json()["id"]
+    assert admin.post("/api/teams", {"name": "Zwei"}, format="json").status_code == 201  # no members key at all
+    assert admin.patch(f"/api/teams/{tid}", {"members": [{"user": lead.id, "can_write": True}]}, format="json").status_code == 400  # members need a leader
+    assert admin.patch(f"/api/teams/{tid}", {"members": [{"user": lead.id, "is_leader": True}]}, format="json").status_code == 200
+    assert lc.patch(f"/api/teams/{tid}", {"members": []}, format="json").status_code == 403  # a leader never changes who is in the team
+    assert admin.patch(f"/api/teams/{tid}", {"members": []}, format="json").status_code == 200  # an admin may
+
+
+def test_page_keeps_embedded_document_blocks_and_files_stay_in_the_folder(client):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    area = create(client, "area", "IT")
+    page = create(client, "page", "Mit Datei", area)
+    up = client.post("/api/files", {"parent": area, "file": SimpleUploadedFile("Plan.docx", _zip({"word/document.xml": "<w:p><w:t>Notfallplan</w:t></w:p>"}))}, format="multipart")
+    assert up.status_code == 201
+    fid = up.json()["id"]
+    html = f'<p>Text davor</p><div data-docfile="{fid}" data-docname="Plan.docx"></div><p>Text danach</p><div data-docfile="x" onclick="evil()" style="x"></div>'
+    assert client.put(f"/api/pages/{page}/content", {"html": html, "base_version": 1}, format="json").status_code == 200
+    stored = client.get(f"/api/nodes/{page}").json()["content_html"]
+    assert f'data-docfile="{fid}"' in stored and 'data-docname="Plan.docx"' in stored and "Text davor" in stored and "Text danach" in stored
+    assert "onclick" not in stored and "style=" not in stored  # nothing but the two data attributes survives on the block
+    # The embedded file is an ordinary file node of the folder: found by the search, readable by the page's readers only.
+    assert [h["title"] for h in client.get("/api/search", {"q": "notfallplan"}).json()] == ["Plan.docx"]
+    assert client.get(f"/api/nodes/{fid}").json()["permissions"]["write"] is True
+    assert APIClient().get(f"/api/nodes/{fid}").status_code in (401, 403, 404)

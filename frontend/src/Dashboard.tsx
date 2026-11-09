@@ -75,7 +75,7 @@ export function Dashboard() {
           <ol>
             <li>Mit „Bearbeiten“ legst du Kategorien an, z. B. Server, Smart Home oder Medien.</li>
             <li>In jede Kategorie kommen Shortcuts: Name, Adresse und ein Symbol. Per Ziehen sortierst du um.</li>
-            <li>Im Reiter „Wiki“ schreibst du Seiten und lädst Dateien hoch, im Reiter „Netzwerk“ zeichnest du Karten.</li>
+            <li>Im Reiter „Wiki“ schreibst du Seiten und lädst Dateien hoch.</li>
             {data.is_admin && <li>Als Admin legst du unter Verwaltung → Teams Teams mit eigenem Bereich an und kannst hier Kategorien für alle vorgeben.</li>}
           </ol>
           <button className="primary" onClick={() => { setEditing(true); addCategory(); }}>Erste Kategorie anlegen</button>

@@ -1,13 +1,20 @@
 """Teams: each team has a knowledge area and two groups that carry the members' NodePermission rights."""
+import re
+
 from django.contrib.auth.models import Group
 from django.db import transaction
 
 from .models import Node, NodePermission
 
 
+def group_name(team_name, suffix):
+    """"Team IT · Lesen", not "Team Team IT · Lesen" when the team's own name already starts with Team."""
+    return f"{team_name if re.match(r'team\b', team_name, re.I) else f'Team {team_name}'} · {suffix}"
+
+
 def _group(team, attr, suffix):
     g = getattr(team, attr)
-    name = f"Team {team.name} · {suffix}"
+    name = group_name(team.name, suffix)
     if g is None:
         g = Group.objects.create(name=name)
         setattr(team, attr, g)

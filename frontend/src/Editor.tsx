@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { EditorContent, useEditor, Editor as TipTap, Node } from "@tiptap/react";
 import { Icon, IconName } from "./Icons";
 import StarterKit from "@tiptap/starter-kit";
@@ -29,6 +30,25 @@ const Drawio = Node.create({
   },
 });
 
+// Block that embeds an uploaded file (any type) of the page's folder; the page view renders it as a collapsed block (DocEmbed).
+const DocFile = Node.create({
+  name: "docfile",
+  group: "block",
+  atom: true,
+  addAttributes() {
+    return {
+      file: { default: null, parseHTML: (el) => el.getAttribute("data-docfile"), renderHTML: (a) => ({ "data-docfile": a.file }) },
+      name: { default: "", parseHTML: (el) => el.getAttribute("data-docname") ?? "", renderHTML: (a) => ({ "data-docname": a.name }) },
+    };
+  },
+  parseHTML() {
+    return [{ tag: "div[data-docfile]" }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["div", HTMLAttributes];
+  },
+});
+
 export const extensions = [
   StarterKit.configure({ codeBlock: false }),
   Link.configure({ openOnClick: false, autolink: true }),
@@ -39,6 +59,7 @@ export const extensions = [
   TableCell,
   CodeBlockLowlight.configure({ lowlight }),
   Drawio,
+  DocFile,
 ];
 
 interface Props {
@@ -46,15 +67,70 @@ interface Props {
   initialHtml: string;
   onReady: (editor: TipTap) => void;
   onImage?: (file: File) => Promise<string | null>;
+  onFile?: (file: File) => Promise<string | null>; // upload a file for embedding: returns the file node id
   onDiagram?: () => Promise<string | null>;
 }
 
-export function Editor({ initial, initialHtml, onReady, onImage, onDiagram }: Props) {
+const IMAGE_TYPES = /^image\/(png|jpe?g|gif|webp)$/;
+
+/** Pasted screenshots are all called "image.png"; give them a name that tells them apart in the folder. */
+function named(file: File) {
+  if (file.name && file.name !== "image.png") return file;
+  const stamp = new Date().toISOString().slice(0, 19).replace("T", " ").replace(/:/g, "-");
+  return new File([file], `Bild ${stamp}.${file.type.split("/")[1].replace("jpeg", "jpg")}`, { type: file.type });
+}
+
+export function Editor({ initial, initialHtml, onReady, onImage, onFile, onDiagram }: Props) {
+  // The handlers below live as long as the editor, the upload function may change: reach it through a ref.
+  const upload = useRef(onImage);
+  upload.current = onImage;
+  const uploadDoc = useRef(onFile);
+  uploadDoc.current = onFile;
+  const self = useRef<TipTap | null>(null);
+  const insertImages = async (files: File[], pos: number) => {
+    for (const f of files) {
+      const file = named(f);
+      const src = await upload.current?.(file);
+      // Cursor behind the picture, so that the next paste or typing does not replace the selected image.
+      if (src && self.current) self.current.chain().focus().insertContentAt(pos, { type: "image", attrs: { src, alt: file.name } }).setTextSelection(pos + 1).run();
+      pos += 1;
+    }
+  };
+  const insertDocs = async (files: File[], pos: number) => {
+    for (const f of files) {
+      const id = await uploadDoc.current?.(f);
+      if (id && self.current) self.current.chain().focus().insertContentAt(pos, { type: "docfile", attrs: { file: id, name: f.name } }).setTextSelection(pos + 1).run();
+      pos += 1;
+    }
+  };
   const editor = useEditor({
     extensions,
     content: initial && Object.keys(initial).length ? initial : initialHtml,
     autofocus: "end",
-    onCreate: ({ editor }) => onReady(editor),
+    onCreate: ({ editor }) => { self.current = editor; onReady(editor); },
+    editorProps: {
+      // Ctrl+V of a screenshot or copied image: upload it like the toolbar button does and insert it at the cursor.
+      // Text on the clipboard wins (copying from Word brings a picture and the text), so only pure image pastes are taken over.
+      handlePaste: (view, event) => {
+        const images = [...(event.clipboardData?.files ?? [])].filter((f) => IMAGE_TYPES.test(f.type));
+        if (!upload.current || !images.length || event.clipboardData?.getData("text/plain")) return false;
+        event.preventDefault();
+        void insertImages(images, view.state.selection.to);
+        return true;
+      },
+      // Dragging image files from the desktop into the page; moving something inside the editor stays with TipTap.
+      handleDrop: (view, event, _slice, moved) => {
+        const dropped = [...(event.dataTransfer?.files ?? [])];
+        const images = dropped.filter((f) => IMAGE_TYPES.test(f.type));
+        const docs = dropped.filter((f) => !IMAGE_TYPES.test(f.type));
+        if (moved || (!(upload.current && images.length) && !(uploadDoc.current && docs.length))) return false;
+        event.preventDefault();
+        const at = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos ?? view.state.selection.to;
+        if (upload.current && images.length) void insertImages(images, at);
+        if (uploadDoc.current && docs.length) void insertDocs(docs, at + images.length);  // other files become embedded documents
+        return true;
+      },
+    },
   });
   if (!editor) return null;
 
@@ -100,6 +176,12 @@ export function Editor({ initial, initialHtml, onReady, onImage, onDiagram }: Pr
             const src = await onImage(file);
             if (src) c().setImage({ src, alt: file.name }).run();
           };
+          input.click();
+        })}
+        {onFile && btn("upload", "Datei einbetten (Dokument, PDF …)", () => {
+          const input = document.createElement("input");
+          input.type = "file";
+          input.onchange = () => { const file = input.files?.[0]; if (file) void insertDocs([file], editor.state.selection.to); };
           input.click();
         })}
         {onDiagram && btn("diagram", "Schaubild (draw.io) einfügen", async () => {

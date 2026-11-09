@@ -10,6 +10,9 @@ export interface NodeSummary {
   writable?: boolean; // tree listings only
   vis?: { kind: "public" | "login" | "team" | "admin"; badge: string; text: string }; // wiki containers in tree listings
   team?: string | null; // team areas: the owning team
+  shared?: string[]; // folders: names of the teams this folder is shared with
+  from?: string; // folders listed under "Von anderen Teams": the sharing team
+  can_share?: boolean; // folders of a team area, for its leader and admins
 }
 
 export interface FileVersion {
@@ -36,6 +39,7 @@ export interface NodeDetail extends NodeSummary {
   is_public: boolean;
   space: "wiki" | "karte";
   breadcrumb: { id: string; title: string; kind: Kind }[];
+  via_team?: number; // reached through a folder another team shared with this team
   permissions: { read: boolean; write: boolean; publish: boolean; manage: boolean };
   content?: object | null;
   target?: string | null; // links: the referenced node (a .drawio file)
@@ -53,11 +57,12 @@ export interface Me {
   can_create_area?: boolean;
   can_download?: boolean;
   collabora?: boolean;
-  nav?: { teams: { id: number; name: string; area: string; write: boolean }[]; other: boolean; public_areas: string[] };
+  nav?: { private?: string | null; teams: { id: number; name: string; area: string; write: boolean }[]; other: boolean; public_areas: string[] };
   todoist?: boolean; // the administration allows the Todoist integration
   features?: string[]; // functions of the user's teams: wiki, faq, tasks, network, export
   teams?: { id: number; name: string; leader: boolean; can_write: boolean }[];
   theme?: Theme;
+  must_change_password?: boolean; // the start admin has to set a new password first
 }
 
 export type Theme = "auto" | "light" | "dark";

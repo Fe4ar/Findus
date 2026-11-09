@@ -9,6 +9,7 @@ import { useDirty } from "./Tabs";
 import { Editor } from "./Editor";
 import { FileView, uploadFile } from "./FileView";
 import { isOffice } from "./OnlyOffice";
+import { DocEmbed } from "./DocEmbed";
 import { Rights } from "./Rights";
 import { DrawioView, EMPTY_DRAWIO } from "./Drawio";
 import { ask, confirmDialog, notify } from "./Dialog";
@@ -145,8 +146,15 @@ export function Html({ html }: { html: string }) {
         root.render(<DrawioView fileId={el.dataset.drawio!} />);
         return root;
       });
+    const docs = [...(ref.current?.querySelectorAll<HTMLElement>("div[data-docfile]") ?? [])]
+      .filter((el) => UUID_RE.test(el.dataset.docfile ?? ""))
+      .map((el) => {
+        const root = createRoot(el);
+        root.render(<DocEmbed fileId={el.dataset.docfile!} name={el.dataset.docname ?? ""} />);
+        return root;
+      });
     // Deferred: unmounting a root synchronously while React renders logs a warning.
-    return () => roots.forEach((r) => setTimeout(() => r.unmount()));
+    return () => [...roots, ...docs].forEach((r) => setTimeout(() => r.unmount()));
   }, [html]);
   // html is sanitized server-side (nh3) before it is stored.
   return <div ref={ref} className="prose" dangerouslySetInnerHTML={{ __html: html }} />;
@@ -190,6 +198,17 @@ function Page({ node, onSaved }: { node: NodeDetail; onSaved: (n: NodeDetail) =>
     }
   }
 
+  // Embedded documents live in the page's folder like images; the block stores the file node's id.
+  async function uploadDoc(file: File) {
+    if (!node.parent) return null;
+    try {
+      return (await uploadFile(node.parent, file)).id;
+    } catch (e) {
+      notify(e instanceof ApiError ? e.message : "Datei-Upload fehlgeschlagen.");
+      return null;
+    }
+  }
+
   async function addDiagram() {
     const ref = await ask({ title: "Schaubild einfügen", label: "Link oder ID eines vorhandenen .drawio-Schaubilds (leer = neues Schaubild im selben Ordner)", ok: "Einfügen" });
     if (ref === null) return null;
@@ -223,7 +242,7 @@ function Page({ node, onSaved }: { node: NodeDetail; onSaved: (n: NodeDetail) =>
       {editing ? (
         <>
           <Editor initial={node.content ?? null} initialHtml={node.content_html ?? ""}
-            onReady={(ed) => (editorRef.current = ed)} onImage={uploadImage} onDiagram={addDiagram} />
+            onReady={(ed) => (editorRef.current = ed)} onImage={uploadImage} onFile={uploadDoc} onDiagram={addDiagram} />
           <div className="save-bar">
             <input placeholder="Kommentar zur Änderung (optional)" value={comment} onChange={(e) => setComment(e.target.value)}
               aria-label="Kommentar zur Änderung" />

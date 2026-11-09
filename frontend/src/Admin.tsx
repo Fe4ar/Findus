@@ -60,7 +60,7 @@ export function Admin({ me, path, go }: { me: Me; path: string; go: (p: string) 
     <div className="admin-body">
       <h1>{current.label}</h1>
       {current.id === "statistik" && <Stats />}
-      {current.id === "benutzer" && <Users go={go} />}
+      {current.id === "benutzer" && <Users go={go} me={me} />}
       {current.id === "teams" && <Teams me={me} go={go} />}
       {current.id === "papierkorb" && <Trash />}
       {current.id === "protokoll" && <Audit />}
@@ -74,7 +74,7 @@ export function Admin({ me, path, go }: { me: Me; path: string; go: (p: string) 
 interface UserRow {
   id: number; username: string; name: string; first_name: string; last_name: string; email: string; is_active: boolean;
   is_superuser: boolean; groups: string[]; teams: { id: number; name: string; leader: boolean; can_write: boolean }[];
-  can_download: boolean; last_login: string | null;
+  can_download: boolean; last_login: string | null; deleted_at: string | null; purge_at: string | null;
 }
 interface Group { id: number; name: string }
 
@@ -92,13 +92,19 @@ const writeTeamDraft = (d: TeamDraft | null) => { try { d ? sessionStorage.setIt
 const getReturn = () => { try { return sessionStorage.getItem(RETURN_KEY); } catch { return null; } };
 const setReturn = (v: string | null) => { try { v ? sessionStorage.setItem(RETURN_KEY, v) : sessionStorage.removeItem(RETURN_KEY); } catch { /* ignore */ } };
 
-function Users({ go }: { go: (p: string) => void }) {
+function Users({ go, me }: { go: (p: string) => void; me: Me }) {
   const [data, setData] = useState<{ users: UserRow[]; groups: Group[] } | null>(null);
   const [q, setQ] = useState("");
   const [edit, setEdit] = useState<UserRow | "new" | null>(null);
   const load = useCallback(() => api<{ users: UserRow[]; groups: Group[] }>("/api/admin/users").then(setData).catch(err), []);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (getReturn() === "new-user") setEdit("new"); }, []);
+  const remove = async (u: UserRow) => {
+    if (await confirmDialog({ title: `Benutzer „${u.username}“ löschen?`, message: "Das Konto wird gesperrt, der private Bereich bleibt für die Aufbewahrungsfrist verschlossen (auch für dich). Innerhalb der Frist kannst du Benutzer und Bereich zusammen wiederherstellen, danach ist alles endgültig weg.", ok: "Löschen", danger: true })) {
+      api(`/api/admin/users/${u.id}`, { method: "DELETE" }).then(load).catch(err);
+    }
+  };
+  const restore = (u: UserRow) => api(`/api/admin/users/${u.id}/restore`, { method: "POST" }).then(load).catch(err);
   const patch = (u: UserRow, body: object) => api(`/api/admin/users/${u.id}`, { method: "PATCH", body }).then(load).catch(err);
   if (!data) return <p className="muted">Lade …</p>;
   const rows = data.users.filter((u) => `${u.username} ${u.name} ${u.email}`.toLowerCase().includes(q.toLowerCase()));
@@ -115,12 +121,14 @@ function Users({ go }: { go: (p: string) => void }) {
           <tbody>
             {rows.map((u) => (
               <tr key={u.id} className={u.is_active ? "" : "inactive"}>
-                <td><strong>{u.name || u.username}</strong><small className="muted">{u.username}{u.is_superuser ? " · Superuser" : ""}{!u.is_active ? " · gesperrt" : ""}</small></td>
+                <td><strong>{u.name || u.username}</strong><small className="muted">{u.username}{u.is_superuser ? " · Superuser" : ""}{u.deleted_at ? ` · gelöscht, endgültig am ${formatDate(u.purge_at!)}` : !u.is_active ? " · gesperrt" : ""}</small></td>
                 <td>{u.groups.map((g) => <span key={g} className="chip">{g}</span>)}</td>
                 <td>{u.teams.map((t) => <span key={t.id} className={`chip ${t.leader ? "lead" : ""}`} title={t.leader ? "Teamleiter" : t.can_write ? "Lesen und Schreiben" : "Lesen"}>{t.name}{t.leader ? " ★" : t.can_write ? " ✎" : ""}</span>)}</td>
                 <td><label className="switch"><input type="checkbox" checked={u.can_download} onChange={(e) => patch(u, { can_download: e.target.checked })} aria-label={`Download für ${u.username}`} /><span /></label></td>
                 <td className="muted">{u.last_login ? formatDate(u.last_login) : "–"}</td>
-                <td><button onClick={() => setEdit(u)}>Bearbeiten</button></td>
+                <td>{u.deleted_at
+                  ? <button onClick={() => restore(u)}>Wiederherstellen</button>
+                  : <><button onClick={() => setEdit(u)}>Bearbeiten</button> {u.username !== me.username && <button className="danger" onClick={() => remove(u)}>Löschen</button>}</>}</td>
               </tr>
             ))}
           </tbody>
@@ -198,7 +206,7 @@ function UserDialog({ user, groups, onClose, onSaved, go }: { go: (p: string) =>
 // --- Teams -------------------------------------------------------------------------------------------------
 
 interface Member { user: number; username: string; name: string; is_leader: boolean; can_write: boolean }
-interface TeamRow { id: number; name: string; area: string | null; trash_days: number; features: Record<string, boolean>; can_manage: boolean; can_lead: boolean; members: Member[] }
+interface TeamRow { id: number; name: string; area: string | null; trash_days: number; share_by_members: boolean; features: Record<string, boolean>; can_manage: boolean; can_lead: boolean; members: Member[] }
 
 function Teams({ me, go }: { me: Me; go: (p: string) => void }) {
   const [teams, setTeams] = useState<TeamRow[] | null>(null);
@@ -256,10 +264,11 @@ function TeamDialog({ team, admin, onClose, onSaved, go }: { go: (p: string) => 
   const [draft, setDraft] = useState(() => (team ? null : readTeamDraft()));
   const [name, setName] = useState(team?.name ?? draft?.name ?? "");
   const [days, setDays] = useState(team?.trash_days ?? 40);
+  const [shareByMembers, setShareByMembers] = useState(team?.share_by_members ?? false);
   const [members, setMembers] = useState<Member[]>(team?.members ?? draft?.members ?? []);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [pick, setPick] = useState("");
-  const [tab, setTab] = useState<"members" | "folders" | "features">("members");
+  const [tab, setTab] = useState<"members" | "features">("members");
   const [features, setFeatures] = useState<Record<string, boolean>>(team?.features ?? {});
   useEffect(() => { if (admin) api<{ users: UserRow[] }>("/api/admin/users").then((r) => setUsers(r.users)); }, [admin]);
   useEffect(() => { if (!team) writeTeamDraft(name || members.length ? { name, members } : null); }, [team, name, members]);
@@ -271,7 +280,7 @@ function TeamDialog({ team, admin, onClose, onSaved, go }: { go: (p: string) => 
     const body: any = { members: members.map((m) => ({ user: m.user, is_leader: m.is_leader, can_write: m.can_write })), trash_days: days };
     try {
       if (!team) await api("/api/teams", { method: "POST", body: { name, members: body.members } });
-      else await api(`/api/teams/${team.id}`, { method: "PATCH", body: admin ? { ...body, name, features } : { members: body.members, trash_days: days, features: { tasks: features.tasks !== false, network: features.network !== false } } });
+      else await api(`/api/teams/${team.id}`, { method: "PATCH", body: admin ? { ...body, name, features, share_by_members: shareByMembers } : { members: body.members, trash_days: days, share_by_members: shareByMembers } });
       writeTeamDraft(null);
       onSaved();
     } catch (e) { err(e); }
@@ -282,32 +291,38 @@ function TeamDialog({ team, admin, onClose, onSaved, go }: { go: (p: string) => 
     }
   };
   return (
-    <Modal title={team ? `Team ${team.name}` : "Neues Team"} onClose={onClose} wide>
+    <Modal title={team ? (/^team\b/i.test(team.name) ? team.name : `Team ${team.name}`) : "Neues Team"} onClose={onClose} wide>
       {draft && <p className="draft-note" role="status">Entwurf wiederhergestellt. <button type="button" onClick={discard}>Verwerfen</button></p>}
-      {team && (
+      {team && admin && (
         <div className="tabs-inline" role="tablist">
           <button role="tab" aria-selected={tab === "members"} onClick={() => setTab("members")}>Mitglieder</button>
-          <button role="tab" aria-selected={tab === "folders"} onClick={() => setTab("folders")}>Ordner</button>
-          <button role="tab" aria-selected={tab === "features"} onClick={() => setTab("features")}>Funktionen</button>
+          {admin && <button role="tab" aria-selected={tab === "features"} onClick={() => setTab("features")}>Funktionen</button>}
         </div>
       )}
-      {tab === "features" && team ? (
+      {tab === "features" && team && admin ? (
         <fieldset className="feature-list">
           <legend>Funktionen für dieses Team</legend>
-          {Object.entries(FEATURE_LABELS).filter(([key]) => admin || key === "tasks" || key === "network").map(([key, [label, hint]]) => (
+          {Object.entries(FEATURE_LABELS).map(([key, [label, hint]]) => (
             <label key={key} className="check-row">
               <input type="checkbox" checked={features[key] !== false} onChange={(e) => setFeatures({ ...features, [key]: e.target.checked })} />
               <span><strong>{label}</strong><span className="muted"> {hint}</span></span>
             </label>
           ))}
-          <p className="muted">{admin ? "" : "Als Teamleiter schaltest du Aufgaben und Netzwerk für das ganze Team. "}Wer in mehreren Teams ist, hat eine Funktion, sobald ein Team sie aktiviert. Admins haben immer alles. „Speichern“ wendet die Auswahl an.</p>
+          <p className="muted">Aufgaben und Netzwerk sind aus, bis du sie hier für das Team freigibst. Wer in mehreren Teams ist, hat eine Funktion, sobald ein Team sie aktiviert. Admins haben immer alles. „Speichern“ wendet die Auswahl an.</p>
           <div className="actions"><span className="spacer" /><button className="primary" onClick={save}>Speichern</button></div>
         </fieldset>
-      ) : tab === "folders" && team ? <FolderTable mode="team" team={team.id} /> : <>
+      ) : <>
       <div className="form-grid">
         <label>Name<input value={name} disabled={!admin} onChange={(e) => setName(e.target.value)} /></label>
         {team && <label>Papierkorb (Tage)<input type="number" min={1} max={3650} value={days} onChange={(e) => setDays(+e.target.value)} /></label>}
       </div>
+      {team && (
+        <fieldset className="share-setting">
+          <legend>Wer darf Ordner dieses Teams an andere Teams freigeben?</legend>
+          <label className="check-row"><input type="radio" name="share-by" checked={!shareByMembers} onChange={() => setShareByMembers(false)} /> Nur die Teamleitung</label>
+          <label className="check-row"><input type="radio" name="share-by" checked={shareByMembers} onChange={() => setShareByMembers(true)} /> Alle Teammitglieder <span className="muted small">(Bearbeiten-Rechte vergeben nur Mitglieder mit Schreibrecht)</span></label>
+        </fieldset>
+      )}
       <table className="admin-table compact">
         <thead><tr><th>Mitglied</th><th>Teamleiter</th><th>Recht</th>{admin && <th />}</tr></thead>
         <tbody>
@@ -336,69 +351,53 @@ function TeamDialog({ team, admin, onClose, onSaved, go }: { go: (p: string) => 
         {team && admin && <button className="danger" onClick={remove}>Team löschen</button>}
         <span className="spacer" />
         <button onClick={() => (document.activeElement as HTMLElement)?.closest("dialog")?.close()}>Abbrechen</button>
-        <button className="primary" onClick={save} disabled={!name.trim() || !members.some((m) => m.is_leader)}>Speichern</button>
+        <button className="primary" onClick={save} disabled={!name.trim() || (members.length > 0 && !members.some((m) => m.is_leader))}>Speichern</button>
       </div>
       </>}
     </Modal>
   );
 }
 
-// --- Ordnerrechte (im Team bzw. im FAQ-Eintrag) ----------------------------------------------------------------
+// --- Ordnerrechte des FAQ (Teams geben Ordner über das Kontextmenü des Baums frei) ----------------------------------------------------------------
 
 interface Vis { kind: "public" | "login" | "team" | "admin"; badge: string; text: string }
-interface FRow { id: string; title: string; depth: number; kind: string; inherit: boolean | null; public: boolean; public_editable: boolean; vis: Vis; cells: Record<string, { see: boolean; edit: boolean }> }
-interface FData { principals: { key: string; label: string; team: number | null }[]; rows: FRow[] }
+interface FRow { id: string; title: string; depth: number; kind: string; inherit: boolean | null; public: boolean; public_editable: boolean; vis: Vis }
+interface FData { rows: FRow[] }
 
-/** Folder tree with Erben, Sehen/Bearbeiten for one team (mode "team") or Erben and "Ohne Anmeldung" for the FAQ (mode "faq"). */
-function FolderTable({ mode, team }: { mode: "team" | "faq"; team?: number }) {
-  const q = mode === "faq" ? "faq=1" : `team=${team}`;
-  const [data, setData] = useState<FData | null>(null);
-  const [rows, setRows] = useState<FRow[]>([]);
+/** FAQ folder tree with Erben and "Ohne Anmeldung". */
+function FolderTable() {
+  const [rows, setRows] = useState<FRow[] | null>(null);
   const [dirty, setDirty] = useState<Set<string>>(new Set());
-  const load = useCallback(() => api<FData>(`/api/admin/folders?${q}`).then((d) => { setData(d); setRows(d.rows); setDirty(new Set()); }).catch(err), [q]);
+  const load = useCallback(() => api<FData>("/api/admin/folders?faq=1").then((d) => { setRows(d.rows); setDirty(new Set()); }).catch(err), []);
   useEffect(() => { load(); }, [load]);
-  if (!data) return <p className="muted">Lade …</p>;
-  const key = data.principals[0]?.key;
+  if (!rows) return <p className="muted">Lade …</p>;
   const upd = (id: string, fn: (r: FRow) => FRow) => { setRows(rows.map((r) => (r.id === id ? fn(r) : r))); setDirty(new Set(dirty).add(id)); };
-  const setCell = (r: FRow, k: "see" | "edit", v: boolean) => upd(r.id, (x) => {
-    const c = { ...x.cells[key], [k]: v };
-    if (k === "edit" && v) c.see = true;
-    if (k === "see" && !v) c.edit = false;
-    return { ...x, cells: { ...x.cells, [key]: c } };
-  });
   const save = async () => {
     try {
-      await api("/api/admin/folders/save", { method: "PUT", body: { ...(mode === "faq" ? { faq: true } : { team }), rows: rows.filter((r) => dirty.has(r.id)).map((r) => ({ id: r.id, inherit: r.inherit, public: r.public, cells: r.cells })) } });
+      await api("/api/admin/folders/save", { method: "PUT", body: { faq: true, rows: rows.filter((r) => dirty.has(r.id)).map((r) => ({ id: r.id, inherit: r.inherit, public: r.public })) } });
       notify("Rechte gespeichert.", false);
       load();
     } catch (e) { err(e); }
   };
   return (
     <>
-      <p className="muted small">{mode === "faq"
-        ? "Das FAQ ist ohne Anmeldung sichtbar. Ein Ordner kann „erben“ oder für sich entscheiden, ob er öffentlich ist."
-        : "Pro Ordner legst du fest, ob dieses Team ihn sehen und bearbeiten darf. „Erben“ übernimmt die Rechte des übergeordneten Ordners; wird es abgewählt, bleiben die bisherigen Rechte aller Gruppen zunächst erhalten. Administratoren sehen immer alles."}</p>
+      <p className="muted small">Das FAQ ist ohne Anmeldung sichtbar. Ein Ordner kann „erben“ oder für sich entscheiden, ob er öffentlich ist.</p>
       <div className="table-wrap">
         <table className="admin-table rights">
-          <thead><tr><th>Ordner</th><th>Erben</th>{mode === "faq" && <th>Ohne Anmeldung sehen</th>}{mode === "team" && <><th>Sehen</th><th>Bearbeiten</th></>}<th>Wirksam</th></tr></thead>
+          <thead><tr><th>Ordner</th><th>Erben</th><th>Ohne Anmeldung sehen</th><th>Wirksam</th></tr></thead>
           <tbody>
             {rows.map((r) => {
               const locked = r.inherit === true;
-              const c = r.cells[key] ?? { see: false, edit: false };
               return (
                 <tr key={r.id} className={dirty.has(r.id) ? "dirty" : ""}>
                   <td style={{ paddingLeft: 8 + r.depth * 20 }}><span className="folder-name">{r.title}</span></td>
                   <td>{r.inherit === null ? "–" : <input type="checkbox" aria-label={`${r.title}: erben`} checked={r.inherit} onChange={(e) => upd(r.id, (x) => ({ ...x, inherit: e.target.checked }))} />}</td>
-                  {mode === "faq" && <td>{r.public_editable ? <input type="checkbox" aria-label={`${r.title}: ohne Anmeldung`} checked={r.public} disabled={locked} onChange={(e) => upd(r.id, (x) => ({ ...x, public: e.target.checked }))} /> : <input type="checkbox" checked disabled aria-label="immer öffentlich" />}</td>}
-                  {mode === "team" && <>
-                    <td><input type="checkbox" aria-label={`${r.title}: sehen`} checked={c.see} disabled={locked} onChange={(e) => setCell(r, "see", e.target.checked)} /></td>
-                    <td><input type="checkbox" aria-label={`${r.title}: bearbeiten`} checked={c.edit} disabled={locked} onChange={(e) => setCell(r, "edit", e.target.checked)} /></td>
-                  </>}
+                  <td>{r.public_editable ? <input type="checkbox" aria-label={`${r.title}: ohne Anmeldung`} checked={r.public} disabled={locked} onChange={(e) => upd(r.id, (x) => ({ ...x, public: e.target.checked }))} /> : <input type="checkbox" checked disabled aria-label="immer öffentlich" />}</td>
                   <td className="effective"><span className={`vis vis-${r.vis.kind}`}>{r.vis.text}</span></td>
                 </tr>
               );
             })}
-            {!rows.length && <tr><td colSpan={5} className="muted">Keine Ordner.</td></tr>}
+            {!rows.length && <tr><td colSpan={4} className="muted">Keine Ordner.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -495,6 +494,8 @@ function Audit() {
 function System() {
   const [d, setD] = useState<any>(null);
   const [integ, setInteg] = useState<{ todoist_allowed: boolean; todoist_links: number } | null>(null);
+  const [keep, setKeep] = useState<number | null>(null);
+  useEffect(() => { api<{ user_retention_days: number }>("/api/admin/retention").then((r) => setKeep(r.user_retention_days)).catch(err); }, []);
   useEffect(() => { api("/api/admin/system").then(setD).catch(err); api<typeof integ>("/api/admin/integrations").then(setInteg).catch(err); }, []);
   if (!d) return <p className="muted">Lade …</p>;
   const labels: Record<string, string> = { users: "Benutzer", teams: "Teams", nodes: "Seiten, Ordner, Dateien", trashed: "im Papierkorb", files: "Dateiversionen", revisions: "Seitenversionen", audit: "Protokolleinträge" };
@@ -516,6 +517,16 @@ function System() {
           <label className="check-row">
             <input type="checkbox" checked={integ.todoist_allowed} onChange={(e) => api<typeof integ>("/api/admin/integrations", { method: "PUT", body: { todoist_allowed: e.target.checked } }).then(setInteg).catch(err)} />
             <span><strong>Todoist-Integration erlauben</strong><span className="muted"> Benutzer können ihr Todoist-Konto verbinden (Team-Funktion „Aufgaben“ vorausgesetzt). {integ.todoist_links} verbunden. Ausgeschaltet ruht der Abgleich für alle.</span></span>
+          </label>
+        </fieldset>
+      )}
+      {keep !== null && (
+        <fieldset className="feature-list">
+          <legend>Gelöschte Benutzer</legend>
+          <label className="check-row">
+            <input type="number" min={1} max={3650} value={keep} style={{ width: "6em" }} onChange={(e) => setKeep(Number(e.target.value))}
+              onBlur={() => api<{ user_retention_days: number }>("/api/admin/retention", { method: "PUT", body: { user_retention_days: keep } }).then((r) => setKeep(r.user_retention_days)).catch(err)} />
+            <span><strong>Aufbewahrungsfrist in Tagen</strong><span className="muted"> So lange bleiben ein gelöschter Benutzer und sein privater Bereich erhalten; nur ein Admin kann beides zusammen wiederherstellen. Danach löscht der Timer <code>findus-purge.timer</code> endgültig.</span></span>
           </label>
         </fieldset>
       )}
@@ -583,7 +594,7 @@ function FaqDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () => v
         <button role="tab" aria-selected={tab === "editors"} onClick={() => setTab("editors")}>Redaktion und Ticket</button>
         <button role="tab" aria-selected={tab === "folders"} onClick={() => setTab("folders")}>Ordner</button>
       </div>
-      {tab === "folders" ? <FolderTable mode="faq" /> : !d ? <p className="muted">Lade …</p> : (
+      {tab === "folders" ? <FolderTable /> : !d ? <p className="muted">Lade …</p> : (
         <>
           <p className="muted small">Das FAQ ist ohne Anmeldung lesbar. Bearbeiten dürfen nur die hier gewählten Personen und Teams. Ist nichts gewählt, gelten die bisherigen Rechte der Bereiche. Die Auswahl wird auch in der API geprüft.</p>
           <MultiSelect label="Personen" placeholder="Personen wählen …" options={d.all_users} value={d.users} onChange={(users) => setD({ ...d, users })} />

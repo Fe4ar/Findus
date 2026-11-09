@@ -6,4 +6,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 RUN DJANGO_SECRET_KEY=build python manage.py collectstatic --noinput
 EXPOSE 8000
-CMD ["sh", "-c", "python manage.py migrate --noinput && exec gunicorn wiki.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120"]
+CMD ["sh", "-c", "python manage.py migrate --noinput && python manage.py ensure_start_admin && exec gunicorn wiki.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120"]

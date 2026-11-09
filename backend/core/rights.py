@@ -10,7 +10,7 @@ from django.contrib.auth.models import Group
 from django.db.models import Q
 
 from .models import Node, NodePermission, Team
-from .permissions import MANAGE, _chain, governing, is_public
+from .permissions import MANAGE, _chain, governing, is_private, is_public
 
 
 class Context:
@@ -27,6 +27,13 @@ class Context:
         for p in NodePermission.objects.exclude(node=None):
             self.rows[p.node_id][p.group_id] = p
 
+    def shared_with(self, node):
+        """Teams other than the owning team that have rows on this very folder (a folder shared with them)."""
+        own = self.team_of_area.get(_chain(node)[-1].pk)
+        rows = self.rows.get(node.pk) or {}
+        return [{"team": p["team"], "name": p["label"], "edit": bool(rows.get(p["edit"]) and rows[p["edit"]].can_write)}
+                for p in self.principals if p["team"] and p["label"] != own and (p["see"] in rows or p["edit"] in rows)]
+
     def cell(self, node, principal):
         """(see, edit) the principal gets on node from the rows of the governing chain (own rows when not inheriting)."""
         chain = _chain(node)
@@ -42,6 +49,8 @@ class Context:
         chain = _chain(node)
         inherited = governing(chain) > 0
         suffix = " (geerbt)" if inherited else ""
+        if is_private(node):  # personal area: its owner sees it, even an admin sees nothing, so never "Nur Admin"
+            return {"kind": "private", "badge": "Privat", "text": "Nur du"}
         if is_public(node):
             return {"kind": "public", "badge": "Ohne Anmeldung", "text": "Alle (auch ohne Anmeldung)" + suffix}
         seeing = [p["label"] for p in self.principals if self.cell(node, p)[0]]

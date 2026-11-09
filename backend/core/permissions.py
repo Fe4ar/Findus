@@ -44,6 +44,11 @@ def governing(chain):
     return len(chain) - 1
 
 
+def is_private(node):
+    """True inside someone's personal area (see Node.owner)."""
+    return _chain(node)[-1].owner_id is not None
+
+
 def is_admin(user):
     """Superuser or member of a group that manages everything (the Admin group)."""
     return bool(user and user.is_authenticated and user.is_active
@@ -67,6 +72,9 @@ def can(user, action, node=None):
     assert action in ACTIONS, action
     if node is not None and any(n.deleted_at is not None for n in _chain(node)):
         return False
+    if node is not None and _chain(node)[-1].owner_id is not None:
+        # Personal area: only its owner, with every right, before any admin or group rule can apply.
+        return bool(user and user.is_authenticated and user.is_active and user.pk == _chain(node)[-1].owner_id)
     if user is None or not user.is_authenticated:
         return action == READ and node is not None and is_public(node)
     if not user.is_active:

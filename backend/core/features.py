@@ -2,10 +2,12 @@
 
 A user has a function when at least one of their teams has it on. Admins always have all of them. Users without a team
 only get the FAQ ("Alle Anwender", plus download of what they may read there), unless an admin gave their groups rights
-outside every team (the old global or per-folder rights): those keep all functions until they join a team. Teams store only what is OFF, so a
-function added in a later version is on everywhere until an admin turns it off. The checks sit in permissions.can() and
+outside every team (the old global or per-folder rights): those keep all functions until they join a team. Teams store only what is OFF. Aufgaben and
+Netzwerk (OPT_IN) are off for every new team until an admin releases them; only an admin switches functions, leaders do not.
+Without release the function is invisible and every route answers 403 (also for the legacy rights above). The checks sit in permissions.can() and
 can_download(), so every view obeys them, not only the navigation.
 """
+from .models import OPT_IN_FEATURES
 from .permissions import _chain, _grants, is_admin
 
 FEATURES = {"wiki": "Wiki", "faq": "FAQ", "tasks": "Aufgaben", "network": "Netzwerk", "export": "Export"}
@@ -22,6 +24,8 @@ def enabled(user):
                 cached = set().union(*[set(FEATURES) - set(t.disabled_features) for t in teams])
             elif not _grants(user):
                 cached = {"faq", "export"}
+            else:
+                cached -= set(OPT_IN_FEATURES)
         user._findus_features = cached
     return cached
 

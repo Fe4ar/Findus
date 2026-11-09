@@ -7,9 +7,10 @@ rack?: {id, u, h}}, text {x, y, w, h, text, color}, link {from, to, from_port?, 
 import re
 
 from rest_framework.decorators import api_view
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.response import Response
 
+from .features import enabled
 from .models import Node
 from .permissions import READ, can
 from .services import check_all
@@ -67,6 +68,8 @@ def page_list(request):
     """All wiki pages with their path, for the manual picker in the map editor."""
     if not can(request.user, READ):
         raise NotFound()
+    if "network" not in enabled(request.user):
+        raise PermissionDenied("Netzwerk ist für dein Team nicht aktiviert.")
     pages = Node.objects.filter(space=Node.WIKI, kind=Node.PAGE, deleted_at=None).select_related("parent")
     out = []
     for p in pages:

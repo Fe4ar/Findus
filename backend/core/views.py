@@ -30,7 +30,7 @@ HTML_ATTRS = {
     "img": {"src", "alt", "title", "width", "height"},
     "pre": {"class"}, "code": {"class"}, "span": {"class"},
     "th": {"colspan", "rowspan"}, "td": {"colspan", "rowspan"},
-    "div": {"data-drawio"},  # draw.io diagram block, value = .drawio file node id
+    "div": {"data-drawio", "data-docfile", "data-docname"},  # draw.io diagram / embedded document block, value = file node id (+ its name)
 }
 
 
@@ -58,6 +58,8 @@ def node_summary(n, ctx=None):
     if ctx is not None and n.kind in Node.CONTAINERS and n.space == Node.WIKI:
         out["vis"] = ctx.visibility(n)  # same logic as the "Wirksam" column of the rights page
         out["team"] = ctx.team_of_area.get(n.pk)
+        if n.kind == Node.FOLDER:
+            out["shared"] = [s["name"] for s in ctx.shared_with(n)]  # teams this folder is shared with (small icon, hover)
     return out
 
 
@@ -73,6 +75,13 @@ def node_detail(user, n):
         "breadcrumb": [{"id": a.id, "title": a.title, "kind": a.kind} for a in n.ancestors()],
         "permissions": effective(user, n),
     }
+    from .shares import share_root
+    via = share_root(user, n)
+    if via:  # reached through a folder another team shared: the path starts there, the tab is the receiving team's
+        root, team_id = via
+        ids = [b["id"] for b in data["breadcrumb"]]
+        data["breadcrumb"] = data["breadcrumb"][ids.index(root.id):] if root.id in ids else []
+        data["via_team"] = team_id
     if n.kind in Node.REVISIONED:
         rev = n.revisions.first()
         data["content"] = rev.content if rev else None
@@ -158,15 +167,25 @@ def auth_logout(request):
     return Response(status=204)
 
 
+def private_area(user):
+    """The user's personal area, created on first use (rights: permissions.can, owner only)."""
+    area = Node.objects.filter(parent=None, owner=user, deleted_at=None).first()
+    if area is None:
+        area = Node.objects.create(kind=Node.AREA, space=Node.WIKI, title="Mein Bereich", status=Node.PUBLISHED,
+                                   never_public=True, owner=user, created_by=user, updated_by=user)
+    return area
+
+
 def nav_data(user):
     """Top navigation: one tab per team (admins: all teams) with its area, and whether areas outside every team exist."""
     from .models import Team
     teams = Team.objects.all() if is_admin(user) else Team.objects.filter(members__user=user)
-    other = any(not a.is_public and not hasattr(a, "team") and can(user, READ, a)
+    other = any(not a.is_public and not hasattr(a, "team") and a.owner_id is None and can(user, READ, a)
                 for a in Node.objects.filter(parent=None, kind=Node.AREA, space=Node.WIKI, deleted_at=None))
     admin = is_admin(user)
     led = {m.team_id: m.is_leader or m.can_write for m in user.team_memberships.all()}
-    return {"teams": [{"id": t.id, "name": t.name, "area": t.area_id, "write": admin or led.get(t.id, False)}
+    return {"private": private_area(user).id if user.is_active else None,
+            "teams": [{"id": t.id, "name": t.name, "area": t.area_id, "write": admin or led.get(t.id, False)}
                       for t in teams.distinct().select_related("area") if t.area_id],
             "other": other,
             "public_areas": [a.id for a in Node.objects.filter(parent=None, kind=Node.AREA, space=Node.WIKI, is_public=True, deleted_at=None)
@@ -180,7 +199,43 @@ def me_data(user):
             "is_superuser": user.is_superuser, "is_admin": is_admin(user), "can_create_area": can(user, WRITE) and "wiki" in enabled(user), "can_overview": can(user, READ),
             "can_download": can_download(user), "collabora": bool(settings.COLLABORA_UPSTREAM), "features": sorted(enabled(user)), "nav": nav_data(user), "todoist": IntegrationSettings.allowed(), "teams": [{"id": m.team_id, "name": m.team.name, "leader": m.is_leader, "can_write": m.is_leader or m.can_write}
                       for m in user.team_memberships.select_related("team")],
-            "theme": getattr(getattr(user, "findus_settings", None), "theme", "auto")}
+            "theme": getattr(getattr(user, "findus_settings", None), "theme", "auto"),
+            "must_change_password": bool(getattr(getattr(user, "findus_settings", None), "must_change_password", False))}
+
+
+@api_view(["POST"])
+def auth_password(request):
+    """Own password: old one once, new one twice. Also the way out of the start admin's forced change."""
+    from django.contrib.auth import update_session_auth_hash
+    from django.contrib.auth.password_validation import validate_password
+    from django.core.exceptions import ValidationError as DjangoValidationError
+    user = request.user
+    if not user.is_authenticated:
+        raise PermissionDenied()
+    ks = [("user", f"pwchange:{user.pk}")]
+    wait = throttle.locked_seconds(ks)
+    if wait:
+        return Response({"detail": f"Zu viele Fehlversuche. Bitte in {wait} Sekunden erneut versuchen."}, status=429, headers={"Retry-After": str(wait)})
+    old, new, again = (str(request.data.get(k) or "") for k in ("old", "new", "new2"))
+    if not user.check_password(old):
+        throttle.record_failure(ks)
+        raise ValidationError({"old": "Das bisherige Passwort stimmt nicht."})
+    if new != again:
+        raise ValidationError({"new2": "Die beiden neuen Passwörter sind verschieden."})
+    if new == old:
+        raise ValidationError({"new": "Das neue Passwort muss sich vom bisherigen unterscheiden."})
+    try:
+        validate_password(new, user)
+    except DjangoValidationError as e:
+        raise ValidationError({"new": list(e.messages)})
+    user.set_password(new)
+    user.save(update_fields=["password"])
+    UserSettings.objects.filter(user=user).update(must_change_password=False)
+    throttle.record_success(ks)
+    update_session_auth_hash(request, user)  # this session stays signed in, other sessions of the account end
+    audit.log(request, "user", username=user.get_username(), what="Passwort geändert")
+    from django.contrib.auth import get_user_model
+    return Response(me_data(get_user_model().objects.get(pk=user.pk)))
 
 
 @api_view(["PUT"])
@@ -209,15 +264,24 @@ def tree(request):
         qs = parent.children.filter(deleted_at=None)
     else:
         space = request.query_params.get("space") or Node.WIKI
+        if space == Node.KARTE and request.user.is_authenticated and "network" not in enabled(request.user):
+            raise PermissionDenied("Diese Funktion ist für dein Team nicht aktiviert.")
         qs = Node.objects.filter(parent=None, deleted_at=None, space=space)
         # Navigation tabs: "Alle Anwender" lists the public areas, the rest-of-wiki tab everything that is neither public nor a team's.
         scope = request.query_params.get("scope")
+        if scope == "private":
+            qs = qs.filter(owner=request.user) if request.user.is_authenticated else qs.none()
+        else:
+            qs = qs.filter(owner=None)  # personal areas only show under "Privat"
         if scope == "public":
             qs = qs.filter(is_public=True)
         elif scope == "other":
             qs = qs.filter(is_public=False, team=None)
+    from .shares import can_share
     ctx = rights.Context()
-    return Response([{**node_summary(n, ctx), "writable": can(request.user, WRITE, n)} for n in qs if can(request.user, READ, n)])
+    return Response([{**node_summary(n, ctx), "writable": can(request.user, WRITE, n),
+                      **({"can_share": can_share(request.user, n)} if n.kind == Node.FOLDER else {})}
+                     for n in qs if can(request.user, READ, n)])
 
 
 @api_view(["POST"])
@@ -266,6 +330,9 @@ def node_view(request, node_id):
         return Response(node_detail(request.user, node_or_404(request.user, node_id)))
 
     node = node_or_404(request.user, node_id, WRITE)
+    if request.method == "DELETE" or "parent" in request.data:
+        from .shares import guard_root
+        guard_root(request.user, node)  # a folder shared by another team is moved or deleted only by its owners
     if request.method == "DELETE":
         now = timezone.now()
         with transaction.atomic():
@@ -389,6 +456,8 @@ def _flags(p):
 def node_permissions(request, node_id):
     """Group rights set directly on a node (PUT replaces them) plus what each group inherits from above."""
     node = node_or_404(request.user, node_id, MANAGE)
+    from .shares import guard_receiver
+    guard_receiver(request.user, node)
     groups = list(Group.objects.order_by("name"))
     if request.method == "PUT":
         rows = request.data.get("rows")

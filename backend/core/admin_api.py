@@ -17,8 +17,8 @@ from rest_framework.response import Response
 
 from . import audit, rights, teams
 from .features import FEATURES
-from .models import AuditLog, FileVersion, Node, NodePermission, PageRevision, Team, TeamMember, UserSettings
-from .permissions import WRITE, _chain, can, governing, is_admin, is_public
+from .models import AuditLog, FileVersion, IntegrationSettings, Node, NodePermission, PageRevision, Team, TeamMember, UserSettings
+from .permissions import WRITE, _chain, can, governing, is_admin, is_private, is_public
 from .views import is_uuid, user_name
 
 User = get_user_model()
@@ -61,7 +61,36 @@ def user_data(u):
             "teams": [{"id": m.team_id, "name": m.team.name, "leader": m.is_leader, "can_write": m.is_leader or m.can_write}
                       for m in u.team_memberships.all()],
             "can_download": getattr(getattr(u, "findus_settings", None), "can_download", True),
-            "last_login": u.last_login}
+            "last_login": u.last_login, "deleted_at": _deleted_at(u),
+            "purge_at": (_deleted_at(u) + timedelta(days=IntegrationSettings.retention_days())) if _deleted_at(u) else None}
+
+
+@api_view(["POST"])
+def user_restore(request, user_id):
+    """Inside the retention: the user AND their personal area come back together; the admin never sees the content."""
+    need_admin(request)
+    u = User.objects.filter(pk=user_id).first() or (_ for _ in ()).throw(NotFound())
+    at = _deleted_at(u)
+    if not at or at + timedelta(days=IntegrationSettings.retention_days()) <= timezone.now():
+        raise NotFound()
+    UserSettings.objects.filter(user=u).update(deleted_at=None)
+    u.is_active = True
+    u.save(update_fields=["is_active"])
+    Node.objects.filter(owner=u).update(deleted_at=None)
+    audit.log(request, "user", username=u.username, what="wiederhergestellt")
+    return Response(user_data(User.objects.get(pk=u.pk)))
+
+
+@api_view(["GET", "PUT"])
+def retention(request):
+    need_admin(request)
+    if request.method == "PUT":
+        days = request.data.get("user_retention_days")
+        if not isinstance(days, int) or not 1 <= days <= 3650:
+            raise ValidationError({"user_retention_days": "1 bis 3650 Tage."})
+        IntegrationSettings.objects.update_or_create(pk=1, defaults={"user_retention_days": days})
+        audit.log(request, "user", None, what=f"Aufbewahrungsfrist gelöschter Nutzer: {days} Tage")
+    return Response({"user_retention_days": IntegrationSettings.retention_days()})
 
 
 @api_view(["GET", "POST"])
@@ -83,10 +112,29 @@ def users(request):
                      "groups": [{"id": g.id, "name": g.name} for g in Group.objects.order_by("name") if not g.name.startswith("Team ")]})
 
 
-@api_view(["PATCH"])
+def _deleted_at(u):
+    return getattr(getattr(u, "findus_settings", None), "deleted_at", None)
+
+
+@api_view(["PATCH", "DELETE"])
 def user_edit(request, user_id):
     need_admin(request)
     u = User.objects.filter(pk=user_id).first() or (_ for _ in ()).throw(NotFound())
+    if request.method == "DELETE":
+        # Soft delete: inactive account, personal area hidden (and untouchable for everyone) until the retention is over.
+        if u == request.user:
+            raise ValidationError({"detail": "Das eigene Konto kann nicht gelöscht werden."})
+        if _deleted_at(u):
+            raise ValidationError({"detail": "Schon gelöscht."})
+        now = timezone.now()
+        UserSettings.objects.update_or_create(user=u, defaults={"deleted_at": now})
+        u.is_active = False
+        u.save(update_fields=["is_active"])
+        Node.objects.filter(owner=u, deleted_at=None).update(deleted_at=now)
+        audit.log(request, "user", username=u.username, what="gelöscht (Aufbewahrung %d Tage)" % IntegrationSettings.retention_days())
+        return Response(user_data(User.objects.get(pk=u.pk)))
+    if _deleted_at(u) and "is_active" in request.data:
+        raise ValidationError({"is_active": "Gelöschte Nutzer werden über „Wiederherstellen“ zurückgeholt."})
     d, changed = request.data, {}
     for f in ("first_name", "last_name", "email"):
         if f in d:
@@ -116,16 +164,12 @@ def user_edit(request, user_id):
     return Response(user_data(u))
 
 
-# Functions a team leader may switch for the team; the rest stays with the admins.
-LEADER_FEATURES = {"tasks", "network"}
-
-
 # --- teams ----------------------------------------------------------------------------------------------------
 
 def team_data(team, viewer):
     admin = is_admin(viewer)
     leader = admin or team.members.filter(user=viewer, is_leader=True).exists()
-    return {"id": team.id, "name": team.name, "area": team.area_id, "trash_days": team.trash_days,
+    return {"id": team.id, "name": team.name, "area": team.area_id, "trash_days": team.trash_days, "share_by_members": team.share_by_members,
             "features": {k: k not in team.disabled_features for k in FEATURES},
             "can_manage": admin, "can_lead": leader,
             "members": [{"user": m.user_id, "username": m.user.username, "name": user_name(m.user),
@@ -133,7 +177,8 @@ def team_data(team, viewer):
                         for m in team.members.select_related("user").order_by("-is_leader", "user__username")]}
 
 
-def set_members(team, rows):
+def set_members(team, rows, allow_empty=False):
+    """Replace the members. A team may exist without members (admins add them later); with members it needs a leader."""
     clean = {}
     for r in rows:
         uid = r.get("user") if isinstance(r, dict) else None
@@ -141,8 +186,10 @@ def set_members(team, rows):
             raise ValidationError({"members": f"Unbekannter Benutzer {uid!r}."})
         leader = bool(r.get("is_leader"))
         clean[uid] = (leader, leader or bool(r.get("can_write")))
-    if not any(l for l, _ in clean.values()):
-        raise ValidationError({"members": "Ein Team braucht mindestens einen Teamleiter."})
+    if clean and not any(l for l, _ in clean.values()):
+        raise ValidationError({"members": "Ein Team mit Mitgliedern braucht mindestens einen Teamleiter."})
+    if not clean and not allow_empty:
+        raise ValidationError({"members": "Nur Administratoren leeren ein Team ganz."})
     team.members.exclude(user_id__in=clean).delete()
     for uid, (leader, write) in clean.items():
         TeamMember.objects.update_or_create(team=team, user_id=uid, defaults={"is_leader": leader, "can_write": write})
@@ -158,7 +205,7 @@ def team_list(request):
             raise ValidationError({"name": "Teamname fehlt oder ist vergeben."})
         with transaction.atomic():
             team = Team.objects.create(name=name)
-            set_members(team, request.data.get("members") or [])
+            set_members(team, request.data.get("members") or [], allow_empty=True)
             teams.sync(team, request.user)
         audit.log(request, "team", team.area, team=team, what="angelegt", name=name)
         return Response(team_data(team, request.user), status=201)
@@ -183,12 +230,17 @@ def team_edit(request, team_id):
                 raise ValidationError({"trash_days": "1 bis 3650 Tage."})
             changed["trash_days"] = [team.trash_days, days]
             team.trash_days = days
+        if "share_by_members" in d:
+            if not isinstance(d["share_by_members"], bool):
+                raise ValidationError({"share_by_members": "true oder false."})
+            changed["share_by_members"] = [team.share_by_members, d["share_by_members"]]
+            team.share_by_members = d["share_by_members"]
         if "features" in d:
             f = d["features"]
             if not isinstance(f, dict) or set(f) - set(FEATURES):
                 raise ValidationError({"features": "Erlaubt sind " + ", ".join(FEATURES) + "."})
-            if not admin and set(f) - LEADER_FEATURES:
-                raise PermissionDenied("Teamleiter dürfen nur Aufgaben und Netzwerk ein- oder ausschalten.")
+            if not admin:
+                raise PermissionDenied("Funktionen schaltet nur ein Admin.")
             off = [k for k in FEATURES if not f.get(k, k not in team.disabled_features)]
             changed["features"] = {FEATURES[k]: k not in off for k in FEATURES}
             team.disabled_features = off
@@ -200,7 +252,7 @@ def team_edit(request, team_id):
             team.name = name
         if "members" in d:
             if admin:
-                set_members(team, d["members"])
+                set_members(team, d["members"], allow_empty=True)
             else:
                 # Leaders only change the write right of existing non-leader members.
                 members = {m.user_id: m for m in team.members.all()}
@@ -238,11 +290,7 @@ def _mode(request, body=None):
         need_admin(request)
         return "faq", None
     if src.get("team"):
-        team = Team.objects.filter(pk=src["team"]).first()
-        admin, ids = _scope(request.user)
-        if team is None or not (admin or team.id in ids):
-            raise NotFound()
-        return "team", team
+        raise NotFound()  # the per-team folder matrix is gone: folders are shared with other teams (shares.py)
     need_admin(request)
     return "all", None
 
@@ -260,6 +308,8 @@ def _folders(user, mode="all", team=None):
     out = []
 
     def keep(root):
+        if root.owner_id:
+            return False  # personal areas are not part of any rights table
         if mode == "faq":
             return root.is_public
         if mode == "team":
@@ -384,6 +434,8 @@ def _trash_roots():
 
 def trash_role(user, node):
     """'admin', 'leader', 'writer' or None for the user on a deleted node."""
+    if is_private(node):
+        return "writer" if _chain(node)[-1].owner_id == user.pk else None  # personal trash: the owner only, no admin
     if is_admin(user):
         return "admin"
     team = _team_for(node)
