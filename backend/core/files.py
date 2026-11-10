@@ -91,9 +91,10 @@ def file_upload(request):
         raise ValidationError({"parent": "Ziel muss ein Bereich oder Ordner sein."})
     f = _uploaded(request)
     name = os.path.basename(f.name)
+    attachment = str(request.data.get("attachment") or "") in ("1", "true")  # pasted image / embedded document of a page
     with transaction.atomic():
         last = Node.objects.filter(parent=parent, deleted_at=None).order_by("-position").first()
-        node = Node.objects.create(parent=parent, kind=Node.FILE, title=name[:255],
+        node = Node.objects.create(parent=parent, kind=Node.FILE, title=name[:255], hidden=attachment,
                                    position=(last.position + 1) if last else 0,
                                    status=Node.PUBLISHED if can(request.user, PUBLISH, parent) else Node.DRAFT,
                                    created_by=request.user, updated_by=request.user)

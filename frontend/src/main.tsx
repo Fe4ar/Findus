@@ -150,7 +150,7 @@ function App() {
       const root = n.breadcrumb[0]?.id ?? n.id;
       const team = me.nav?.teams.find((t) => t.area === root);
       // A folder another team shared with us opens in the receiving team's tab (via_team), not in the general wiki.
-      setAreaTab((m) => ({ ...m, [openId]: team ? `team-${team.id}` : n.via_team ? `team-${n.via_team}` : root === me.nav?.private ? "private" : me.nav?.public_areas.includes(root) ? "faq" : "wiki" }));
+      setAreaTab((m) => ({ ...m, [openId]: team ? `team-${team.id}` : n.via_team ? `team-${n.via_team}` : n.via_user ? "private" : root === me.nav?.private ? "private" : me.nav?.public_areas.includes(root) ? "faq" : "wiki" }));
     }).catch(() => undefined);
   }, [me, openId, areaTab]);
 
@@ -316,7 +316,7 @@ function App() {
         <nav className="sidebar" aria-label={team ? teamLabel(team.name) : section === "private" ? "Privat" : section === "faq" ? "Alle Anwender" : "Ordnerbaum"}>
           <Tree key={section} selected={selectedId} version={treeVersion} onChanged={changed} user={user ?? ""} canExport={!!me.can_download}
             onSelect={(id) => go(id ? `/n/${id}` : team ? `/n/${team.area}` : section === "private" ? `/n/${me.nav?.private}` : section === "faq" ? "/anwender" : "/wiki")}
-            rootId={team?.area ?? (section === "private" ? me.nav?.private ?? undefined : undefined)} head={team ? teamLabel(team.name) : undefined} scope={section === "faq" ? "public" : section === "wiki" ? "other" : undefined}
+            rootId={team?.area ?? (section === "private" ? me.nav?.private ?? undefined : undefined)} head={team ? teamLabel(team.name) : undefined} incoming={team ? "team" : section === "private" ? "user" : undefined} scope={section === "faq" ? "public" : section === "wiki" ? "other" : undefined}
             canCreateRoot={team ? team.write : section === "private" ? false : section === "faq" ? false : !!me.can_create_area}
             onOpenTab={(id) => openTab(`/n/${id}`)} />
           <div className="sidebar-foot">

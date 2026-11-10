@@ -190,7 +190,7 @@ function Page({ node, onSaved }: { node: NodeDetail; onSaved: (n: NodeDetail) =>
   async function uploadImage(file: File) {
     if (!node.parent) return null;
     try {
-      const n = await uploadFile(node.parent, file);
+      const n = await uploadFile(node.parent, file, true);
       return n.versions?.[0]?.url ?? null;
     } catch (e) {
       notify(e instanceof ApiError ? e.message : "Bild-Upload fehlgeschlagen.");
@@ -202,7 +202,7 @@ function Page({ node, onSaved }: { node: NodeDetail; onSaved: (n: NodeDetail) =>
   async function uploadDoc(file: File) {
     if (!node.parent) return null;
     try {
-      return (await uploadFile(node.parent, file)).id;
+      return (await uploadFile(node.parent, file, true)).id;
     } catch (e) {
       notify(e instanceof ApiError ? e.message : "Datei-Upload fehlgeschlagen.");
       return null;

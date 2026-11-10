@@ -2,6 +2,16 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.8.3] - 2026-11-10
+
+### Added
+- Private folders can be shared with single users or with teams (right click in the private area, read or edit, taken back at any time). Only the owner shares, administrators see nothing without a share, recipients cannot hand it on or change rights; users find each other by name (at least two letters). Shared folders show up under "Für mich freigegeben" (users) or "Von anderen Teams" (teams)
+- Pages and sub-folders can be put in order by drag and drop inside their folder, or with "Nach oben" / "Nach unten" in the menu; the order is kept per folder and needs the write right in it
+
+### Changed
+- Pasted images and embedded documents are attachments of their page: they appear in the page only, no longer as entries in the sidebar or in folder listings (still reachable, same rights). Existing files that a page shows or embeds from its own folder are marked as attachments by the update (migration 0027)
+- Migration 0028 adds the table for single-user shares
+
 ## [0.8.2] - 2026-11-10
 
 ### Fixed

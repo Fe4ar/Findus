@@ -5,10 +5,12 @@ import { DrawioView } from "./Drawio";
 import { ask, notify } from "./Dialog";
 import { Collabora, ModeSwitch, useCollabora } from "./Office";
 
-export async function uploadFile(parent: string, file: File) {
+/** attachment = pasted image / embedded document: the file belongs to a page and stays out of the tree. */
+export async function uploadFile(parent: string, file: File, attachment = false) {
   const form = new FormData();
   form.append("parent", parent);
   form.append("file", file);
+  if (attachment) form.append("attachment", "1");
   return api<NodeDetail>("/api/files", { method: "POST", body: form });
 }
 

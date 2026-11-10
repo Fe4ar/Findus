@@ -27,11 +27,15 @@ function storeOpen(id: string, open: boolean) {
   } catch { /* storage unavailable */ }
 }
 const isContainer = (k: Kind) => k === "area" || k === "folder";
+// The item being dragged and its folder: during dragover only the data types are readable, so the Tree keeps this itself.
+let dragging: { id: string; parent: string | null } | null = null;
 
 interface Menu {
   x: number;
   y: number;
   node: NodeSummary | null; // null = empty space (new area, or folder/map in the map tree)
+  up?: string | null | undefined; // sibling to put the node in front of for "Nach oben" (undefined = already first)
+  down?: string | null | undefined; // same for "Nach unten" (null = last; undefined = already last)
 }
 
 // Separate trees: the wiki and the network tab, both with areas at the top (network: maps and folders may also sit there).
@@ -53,11 +57,12 @@ interface TreeProps {
   user?: string;
   canExport?: boolean;
   rootId?: string; // show the content of this area (a team's) instead of the list of areas
+  incoming?: "team" | "user"; // which folders shared with me to list below the tree: from other teams, or for me alone (Privat)
   head?: string; // a team's tree starts with its name (team icon, visibility, "+" menu) instead of big buttons at the bottom
   scope?: "public" | "other"; // list only the public areas ("Alle Anwender") or the areas outside every team
 }
 
-export function Tree({ selected, onSelect, version, onChanged, space = "wiki", canCreateRoot = true, onOpenTab, user = "", canExport = false, rootId, scope, head }: TreeProps) {
+export function Tree({ selected, onSelect, version, onChanged, space = "wiki", canCreateRoot = true, onOpenTab, user = "", canExport = false, rootId, scope, head, incoming: incomingKind }: TreeProps) {
   treeUser = user;
   // With rootId the top level holds the area's folders and pages, so new items go into that area.
   const rootNode = rootId ? ({ id: rootId, kind: "area" } as NodeSummary) : null;
@@ -76,10 +81,10 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
   // Folders other teams shared with the user's teams, below the team's own tree.
   useEffect(() => {
     if (!rootId) return;
-    api<{ id: string; title: string; from_team: string; edit: boolean }[]>("/api/shares/incoming")
-      .then((r) => setIncoming(r.map((x) => ({ id: x.id, kind: "folder", title: x.title, status: "published", position: 0, has_children: true, writable: x.edit, from: x.from_team }))))
+    api<{ id: string; title: string; from_team: string; edit: boolean; to_user: boolean }[]>("/api/shares/incoming")
+      .then((r) => setIncoming(r.filter((x) => (incomingKind === "user") === x.to_user).map((x) => ({ id: x.id, kind: "folder", title: x.title, status: "published", position: 0, has_children: true, writable: x.edit, from: x.from_team }))))
       .catch(() => setIncoming([]));
-  }, [rootId, version]);
+  }, [rootId, version, incomingKind]);
 
   useEffect(() => {
     const close = () => { setMenu(null); setPlus(null); };
@@ -122,6 +127,7 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
 
   const m = menu;
   const move = (id: string, target: string | null) => run(() => api(`/api/nodes/${id}`, { method: "PATCH", body: { parent: target } }));
+  const reorder = (id: string, before: string | null) => run(() => api(`/api/nodes/${id}/reorder`, { method: "POST", body: { before } }));
   return (
     <div
       className="tree"
@@ -152,7 +158,7 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
         </div>
       )}
       <Branch parent={rootId ?? null} scope={scope} space={space} depth={0} selected={selected} onSelect={onSelect} version={version}
-        onMenu={setMenu} onMove={move} onOpenTab={onOpenTab} dots={!!head} />
+        onMenu={setMenu} onMove={move} onReorder={reorder} onOpenTab={onOpenTab} dots={!!head} />
       {canCreateRoot && !head && topKinds.map((k) => (
         <button key={k} className="tree-add" onClick={() => create(k, rootNode)}>+ {NEW_LABEL[k]}</button>
       ))}
@@ -162,10 +168,10 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
         </ul>
       )}
       {incoming.length > 0 && (
-        <ul className="branch" role="group" aria-label="Von anderen Teams">
-          <li className="tree-heading" role="presentation">Von anderen Teams</li>
+        <ul className="branch" role="group" aria-label={incomingKind === "user" ? "Für mich freigegeben" : "Von anderen Teams"}>
+          <li className="tree-heading" role="presentation">{incomingKind === "user" ? "Für mich freigegeben" : "Von anderen Teams"}</li>
           {incoming.map((n) => (
-            <Item key={n.id} node={n} depth={0} selected={selected} onSelect={onSelect} version={version} onMenu={setMenu} onMove={move} onOpenTab={onOpenTab} />
+            <Item key={n.id} node={n} depth={0} selected={selected} onSelect={onSelect} version={version} onMenu={setMenu} onMove={move} onReorder={reorder} onOpenTab={onOpenTab} />
           ))}
         </ul>
       )}
@@ -182,10 +188,16 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
             <MenuItem label="Ordner importieren …" onClick={() => { setMenu(null); setImporting(m.node); }} />
           )}
           {m.node && space === "wiki" && m.node.can_share && (
-            <MenuItem label="An anderes Team freigeben …" onClick={() => { setMenu(null); setSharing(m.node); }} />
+            <MenuItem label={incomingKind === "user" ? "Freigeben …" : "An anderes Team freigeben …"} onClick={() => { setMenu(null); setSharing(m.node); }} />
           )}
           {m.node && space === "wiki" && canExport && isContainer(m.node.kind) && (
             <MenuItem label="Ordner exportieren" onClick={() => { setMenu(null); exportFolder(m.node!); }} />
+          )}
+          {m.node && m.node.writable !== false && (m.up !== undefined || m.down !== undefined) && (
+            <>
+              {m.up !== undefined && <MenuItem label="Nach oben" onClick={() => { setMenu(null); reorder(m.node!.id, m.up!); }} />}
+              {m.down !== undefined && <MenuItem label="Nach unten" onClick={() => { setMenu(null); reorder(m.node!.id, m.down!); }} />}
+            </>
           )}
           {m.node && m.node.writable !== false && (
             <>
@@ -243,6 +255,7 @@ interface BranchProps {
   version: number;
   onMenu: (m: Menu) => void;
   onMove: (id: string, target: string | null) => void;
+  onReorder: (id: string, before: string | null) => void;
   onOpenTab?: (id: string) => void;
   dots?: boolean; // visibility as a dot only (the team head already says who may see the area)
 }
@@ -262,7 +275,7 @@ function Branch({ parent, space = "wiki", scope, ...rest }: BranchProps) {
         return (
           <Fragment key={n.id}>
             {head && <li className="tree-heading" role="presentation">{head}</li>}
-            <Item node={n} {...rest} />
+            <Item node={n} parentId={parent} up={i > 0 ? items[i - 1].id : undefined} down={i < items.length - 1 ? items[i + 2]?.id ?? null : undefined} next={items[i + 1]?.id ?? null} {...rest} />
           </Fragment>
         );
       })}
@@ -270,9 +283,10 @@ function Branch({ parent, space = "wiki", scope, ...rest }: BranchProps) {
   );
 }
 
-function Item({ node, depth, selected, onSelect, version, onMenu, onMove, onOpenTab, dots }: { node: NodeSummary } & Omit<BranchProps, "parent" | "space">) {
+function Item({ node, depth, selected, onSelect, version, onMenu, onMove, onReorder, onOpenTab, dots, parentId, up, down, next }: { node: NodeSummary; parentId?: string | null; up?: string | null; down?: string | null; next?: string | null } & Omit<BranchProps, "parent" | "space">) {
   const [open, setOpen] = useState(() => loadOpen().has(node.id));
   const [dropTarget, setDropTarget] = useState(false);
+  const [gap, setGap] = useState<"before" | "after" | null>(null); // dropping next to this row: reorder inside the folder
   const container = isContainer(node.kind);
 
   function toggle(v: boolean) {
@@ -283,23 +297,29 @@ function Item({ node, depth, selected, onSelect, version, onMenu, onMove, onOpen
   return (
     <li role="treeitem" aria-expanded={container ? open : undefined} aria-selected={selected === node.id}>
       <div
-        className={`row${selected === node.id ? " selected" : ""}${dropTarget ? " drop" : ""}`}
+        className={`row${selected === node.id ? " selected" : ""}${dropTarget ? " drop" : ""}${gap ? ` gap-${gap}` : ""}`}
         style={{ paddingLeft: depth * 16 + 4 }}
         draggable={node.kind !== "area"}
-        onDragStart={(e) => e.dataTransfer.setData("text/x-node", node.id)}
+        onDragStart={(e) => { e.dataTransfer.setData("text/x-node", node.id); dragging = { id: node.id, parent: parentId ?? null }; }}
+        onDragEnd={() => { dragging = null; setGap(null); setDropTarget(false); }}
         onDragOver={(e) => {
-          if (container && e.dataTransfer.types.includes("text/x-node")) {
-            e.preventDefault();
-            setDropTarget(true);
-          }
+          if (!e.dataTransfer.types.includes("text/x-node")) return;
+          // Same folder: the upper or lower quarter of a row (the whole row for a page) puts the item in front of / behind it;
+          // the middle of a folder row moves the item into the folder.
+          const r = e.currentTarget.getBoundingClientRect(), y = (e.clientY - r.top) / r.height;
+          const sibling = !!dragging && dragging.id !== node.id && dragging.parent === (parentId ?? null) && node.kind !== "area";
+          if (sibling && (!container || y < 0.28 || y > 0.72)) { e.preventDefault(); e.stopPropagation(); setDropTarget(false); setGap(y < 0.5 ? "before" : "after"); }
+          else if (container) { e.preventDefault(); setGap(null); setDropTarget(true); }
         }}
-        onDragLeave={() => setDropTarget(false)}
+        onDragLeave={() => { setDropTarget(false); setGap(null); }}
         onDrop={(e) => {
+          const id = e.dataTransfer.getData("text/x-node");
+          const g = gap; setGap(null);
+          if (g && id && id !== node.id) { e.preventDefault(); e.stopPropagation(); setDropTarget(false); const before = g === "before" ? node.id : next ?? null; if (before !== id) onReorder(id, before); return; }
           if (!container) return; // let it bubble to the tree (top-level drop in the map tree)
           e.preventDefault();
           e.stopPropagation();
           setDropTarget(false);
-          const id = e.dataTransfer.getData("text/x-node");
           if (id && id !== node.id) {
             onMove(id, node.id);
             toggle(true);
@@ -308,7 +328,7 @@ function Item({ node, depth, selected, onSelect, version, onMenu, onMove, onOpen
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          if (node.writable !== false || onOpenTab) onMenu({ x: e.clientX, y: e.clientY, node });
+          if (node.writable !== false || onOpenTab) onMenu({ x: e.clientX, y: e.clientY, node, up, down });
         }}
       >
         <button className={`twisty${open ? " open" : ""}`} aria-label={open ? "Zuklappen" : "Aufklappen"} tabIndex={-1}
@@ -339,7 +359,7 @@ function Item({ node, depth, selected, onSelect, version, onMenu, onMove, onOpen
       </div>
       {container && open && (
         <Branch parent={node.id} depth={depth + 1} selected={selected} onSelect={onSelect} version={version}
-          onMenu={onMenu} onMove={onMove} onOpenTab={onOpenTab} dots={dots} />
+          onMenu={onMenu} onMove={onMove} onReorder={onReorder} onOpenTab={onOpenTab} dots={dots} />
       )}
     </li>
   );

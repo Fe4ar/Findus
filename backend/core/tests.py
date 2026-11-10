@@ -773,7 +773,7 @@ def test_share_folder_with_other_teams(admin, db):
     assert {n["title"]: n["can_share"] for n in mac.get(f"/api/tree?parent={a['area']}").json()} == {"Gemeinsam": False, "Intern": False}
     # "Von anderen Teams": the target team lists the folder, the owning team does not.
     inc = mbc.get("/api/shares/incoming").json()
-    assert inc == [{"id": folder, "title": "Gemeinsam", "from_team": "Netz", "edit": False, "to": "Team IT"}] and lbc.get("/api/shares/incoming").json() == inc
+    assert inc == [{"id": folder, "title": "Gemeinsam", "from_team": "Netz", "edit": False, "to": "Team IT", "to_user": False}] and lbc.get("/api/shares/incoming").json() == inc
     assert mac.get("/api/shares/incoming").json() == [] and APIClient().get("/api/shares/incoming").status_code in (401, 403)
     # With edit the other team's writers write; the folder itself still cannot be moved or deleted from there.
     assert put(lac, [{"team": b["id"], "edit": True}]).json()["shared"][0]["edit"] is True
@@ -2101,3 +2101,164 @@ def test_file_downloads_may_be_framed_by_the_own_page_only(client):
         assert resp.status_code == 200 and resp["X-Frame-Options"] == "SAMEORIGIN"  # the PDF preview is an iframe on our own origin
     assert client.get(url)["Content-Type"] == "application/pdf" and "inline" in client.get(url)["Content-Disposition"]
     assert client.get("/api/auth/me")["X-Frame-Options"] == "DENY"  # everything else stays unframeable
+
+
+def test_inline_files_are_attachments_hidden_from_the_tree_but_reachable(client):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    area = create(client, "area", "IT")
+    folder = create(client, "folder", "Doku", area)
+    page = create(client, "page", "Seite", folder)
+    up = lambda name, **kw: client.post("/api/files", {"parent": folder, "file": SimpleUploadedFile(name, _pdf("Hallo"), content_type="application/pdf"), **kw}, format="multipart")
+    inline, normal = up("Bild 1.pdf", attachment="1"), up("Handbuch.pdf")
+    assert inline.status_code == normal.status_code == 201
+    titles = lambda parent: sorted(n["title"] for n in client.get(f"/api/tree?parent={parent}").json())
+    assert titles(folder) == ["Handbuch.pdf", "Seite"]  # the attachment is not listed
+    # A folder that only holds an attachment looks empty in the tree; the attachment itself stays reachable.
+    only = create(client, "folder", "Nur Anhang", area)
+    r = client.post("/api/files", {"parent": only, "attachment": "true", "file": SimpleUploadedFile("x.pdf", _pdf("x"), content_type="application/pdf")}, format="multipart")
+    assert next(n for n in client.get(f"/api/tree?parent={area}").json() if n["title"] == "Nur Anhang")["has_children"] is False
+    for resp in (inline, r):
+        node = resp.json()
+        assert client.get(f"/api/nodes/{node['id']}").status_code == 200 and client.get(node["versions"][0]["url"]).status_code == 200
+        assert client.get(node["versions"][0]["url"] + "?download=1").status_code == 200
+        assert client.get("/api/search", {"q": "Hallo"}).status_code == 200
+    assert APIClient().get(inline.json()["versions"][0]["url"]).status_code in (401, 403, 404)  # rights unchanged
+    # Existing data: files that the page's own content shows (<img>) or embeds (data-docfile) in the page's folder become attachments.
+    from importlib import import_module
+    from django.apps import apps
+    img, doc, other_folder, loose = up("Bild 2.pdf"), up("Dokument.pdf"), None, up("Lose.pdf")
+    elsewhere = client.post("/api/files", {"parent": area, "file": SimpleUploadedFile("Woanders.pdf", _pdf("w"), content_type="application/pdf")}, format="multipart")
+    html = (f'<p><img src="{img.json()["versions"][0]["url"]}"></p><div data-docfile="{doc.json()["id"]}" data-docname="Dokument.pdf"></div>'
+            f'<img src="{elsewhere.json()["versions"][0]["url"]}">')
+    assert client.put(f"/api/pages/{page}/content", {"html": html, "base_version": 1}, format="json").status_code == 200
+    from .models import Node
+    Node.objects.filter(pk__in=[img.json()["id"], doc.json()["id"]]).update(hidden=False)
+    import_module("core.migrations.0027_hidden_attachments").hide_inline_files(apps, None)
+    flags = {n.title: n.hidden for n in Node.objects.filter(kind="file")}
+    assert flags["Bild 2.pdf"] and flags["Dokument.pdf"]  # shown / embedded by the page, same folder
+    assert not flags["Lose.pdf"] and not flags["Woanders.pdf"] and not flags["Handbuch.pdf"]  # unreferenced, or in another folder: untouched
+
+
+def test_reorder_nodes_inside_a_folder(admin, db):
+    la, lac = _member("lea"); ra, rac = _member("rita"); lb, lbc = _member("leo")
+    team = _team(admin, "Netz", la, [(ra, False)]); other = _team(admin, "Zwei", lb)
+    folder = create(lac, "folder", "Ordner", team["area"])
+    a, b, c = create(lac, "page", "A", folder), create(lac, "page", "B", folder), create(lac, "folder", "C", folder)
+    order = lambda: [n["title"] for n in lac.get(f"/api/tree?parent={folder}").json()]
+    assert order() == ["A", "B", "C"]
+    move = lambda who, node, before: who.post(f"/api/nodes/{node}/reorder", {"before": before}, format="json")
+    assert move(lac, c, a).status_code == 200 and order() == ["C", "A", "B"]
+    assert move(lac, c, None).status_code == 200 and order() == ["A", "B", "C"]
+    assert move(lac, a, None).status_code == 200 and order() == ["B", "C", "A"]
+    assert move(lac, a, b).status_code == 200 and order() == ["A", "B", "C"]
+    new = create(lac, "page", "D", folder)
+    assert order()[-1] == "D"  # new items go to the end
+    # Nothing outside the folder, nothing without the write right, and the order is the stored one for everybody.
+    foreign = create(lbc, "page", "X", other["area"])
+    assert move(lac, a, foreign).status_code == 400 and order() == ["A", "B", "C", "D"]
+    assert move(rac, b, a).status_code == 403 and move(lbc, b, a).status_code == 404 and move(APIClient(), b, a).status_code in (401, 403, 404)
+    assert [n["title"] for n in rac.get(f"/api/tree?parent={folder}").json()] == ["A", "B", "C", "D"]
+    assert lac.post(f"/api/nodes/{team['area']}/reorder", {"before": None}, format="json").status_code == 403  # areas have no folder to order in
+    assert lac.post(f"/api/nodes/{new}/reorder", {"before": "nicht-uuid"}, format="json").status_code == 400
+
+
+# --- v0.8.3: private folders shared with single users or teams -----------------------------------------------------
+
+def _private_setup(admin):
+    ann, ac = _member("anna"); ben, bc = _member("ben"); cy, cc = _member("cy"); dora, dc = _member("dora")
+    team = _team(admin, "Netz", dora)
+    tm, tmc = _member("tom")
+    _team(admin, "Zwei", tm)
+    root = ac.get("/api/auth/me").json()["nav"]["private"]
+    folder = create(ac, "folder", "Mein Ordner", root)
+    sub = create(ac, "folder", "Unter", folder)
+    page = create(ac, "page", "Notiz", folder)
+    ac.put(f"/api/pages/{page}/content", {"html": "<p>streng vertraulich</p>", "base_version": 1}, format="json")
+    other = create(ac, "folder", "Nicht geteilt", root)
+    return ann, ac, ben, bc, cy, cc, dora, dc, tm, tmc, team, root, folder, sub, page, other
+
+
+def test_private_folder_shared_with_one_user_read_only_and_back(admin, db):
+    ann, ac, ben, bc, cy, cc, dora, dc, tm, tmc, team, root, folder, sub, page, other = _private_setup(admin)
+    put = lambda who, users=(), teams=(), n=None: who.put(f"/api/nodes/{n or folder}/shares", {"users": list(users), "teams": list(teams)}, format="json")
+    # Without a share nobody sees it, admins included.
+    for who in (bc, cc, admin):
+        assert who.get(f"/api/nodes/{folder}").status_code == 404 and who.get(f"/api/nodes/{page}").status_code == 404
+    assert put(ac, [{"user": ben.id, "edit": False}]).status_code == 200
+    # The recipient reads the folder and everything below it (not the rest of the private area), and cannot write.
+    assert bc.get(f"/api/nodes/{folder}").status_code == 200 and bc.get(f"/api/nodes/{page}").status_code == 200 and bc.get(f"/api/nodes/{sub}").status_code == 200
+    assert bc.get(f"/api/nodes/{other}").status_code == 404 and bc.get(f"/api/nodes/{root}").status_code == 404
+    assert [n["title"] for n in bc.get(f"/api/tree?parent={folder}").json()] == ["Notiz", "Unter"] or sorted(n["title"] for n in bc.get(f"/api/tree?parent={folder}").json()) == ["Notiz", "Unter"]
+    assert bc.put(f"/api/pages/{page}/content", {"html": "x", "base_version": 2}, format="json").status_code == 403
+    assert bc.post("/api/nodes", {"kind": "page", "title": "Fremd", "parent": folder}, format="json").status_code == 403
+    # Everybody else, admin included, still sees nothing.
+    for who in (cc, dc, admin):
+        assert who.get(f"/api/nodes/{folder}").status_code == 404
+    # Search finds it for the recipient with its own group, not for others; the own filter "private" stays the own area.
+    hit = bc.get("/api/search", {"q": "vertraulich"}).json()
+    assert [(h["title"], h["group"]) for h in hit] == [("Notiz", "Freigegeben von anna")]
+    assert cc.get("/api/search", {"q": "vertraulich"}).json() == [] and bc.get("/api/search", {"q": "vertraulich", "scope": ["private"]}).json() == []
+    assert [h["group"] for h in ac.get("/api/search", {"q": "vertraulich"}).json()] == ["Privat"]
+    # Where the recipient sees it: "Für mich freigegeben" (incoming for a user), the path starts at the shared folder, tab = Privat.
+    inc = bc.get("/api/shares/incoming").json()
+    assert inc == [{"id": folder, "title": "Mein Ordner", "from_team": "anna (privat)", "edit": False, "to": "Du", "to_user": True}]
+    d = bc.get(f"/api/nodes/{page}").json()
+    assert d.get("via_user") is True and [x["id"] for x in d["breadcrumb"]] == [folder] and "via_team" not in d
+    assert "via_user" not in ac.get(f"/api/nodes/{page}").json()
+    # Tree listing: the owner sees the share icon names, the recipient does not learn who else has it.
+    row = next(n for n in ac.get(f"/api/tree?parent={root}").json() if n["title"] == "Mein Ordner")
+    assert row["shared"] == ["ben"] and row["can_share"] is True
+    # The recipient cannot hand it on, change sharing or rights, move or delete the folder.
+    assert put(bc, [{"user": cy.id}]).status_code == 403 and put(bc, [], n=sub).status_code == 403
+    assert bc.put(f"/api/nodes/{folder}/permissions", {"rows": []}, format="json").status_code in (403, 404)
+    assert bc.delete(f"/api/nodes/{folder}").status_code == 403 and bc.patch(f"/api/nodes/{folder}", {"parent": None}, format="json").status_code in (403, 404)
+    assert bc.get(f"/api/nodes/{folder}/shares").json() == {"shared": [], "users": [], "can_manage": False, "teams": [], "owner": "anna (privat)", "private": True}
+    assert next(n for n in bc.get(f"/api/tree?parent={folder}").json() if n["title"] == "Unter")["can_share"] is False
+    # Taking it back: the recipient loses access at once.
+    assert put(ac, []).json()["users"] == [] and bc.get(f"/api/nodes/{page}").status_code == 404 and bc.get("/api/shares/incoming").json() == []
+
+
+def test_private_folder_with_edit_for_a_user_and_for_a_team(admin, db):
+    ann, ac, ben, bc, cy, cc, dora, dc, tm, tmc, team, root, folder, sub, page, other = _private_setup(admin)
+    put = lambda users=(), teams=(): ac.put(f"/api/nodes/{folder}/shares", {"users": list(users), "teams": list(teams)}, format="json")
+    # Edit for one user: writes pages, creates content, still cannot manage.
+    assert put([{"user": ben.id, "edit": True}]).status_code == 200
+    assert bc.put(f"/api/pages/{page}/content", {"html": "<p>geändert von ben</p>", "base_version": 2}, format="json").status_code == 200
+    new = create(bc, "page", "Von Ben", folder)
+    assert ac.get(f"/api/nodes/{new}").status_code == 200 and cc.get(f"/api/nodes/{new}").status_code == 404
+    assert bc.get("/api/shares/incoming").json()[0]["edit"] is True
+    # A team gets it too (read only here); its members read, strangers do not; the team's tab lists it with the owner's name.
+    assert put([{"user": ben.id, "edit": True}], [{"team": team["id"], "edit": False}]).status_code == 200
+    assert dc.get(f"/api/nodes/{page}").status_code == 200 and dc.put(f"/api/pages/{page}/content", {"html": "x", "base_version": 3}, format="json").status_code == 403
+    assert tmc.get(f"/api/nodes/{page}").status_code == 404 and cc.get(f"/api/nodes/{page}").status_code == 404
+    inc = dc.get("/api/shares/incoming").json()
+    assert inc == [{"id": folder, "title": "Mein Ordner", "from_team": "anna (privat)", "edit": False, "to": "Team Netz", "to_user": False}] or inc[0]["to_user"] is False
+    assert dc.get(f"/api/nodes/{page}").json()["via_team"] == team["id"]
+    # The team cannot share it on or change the rights either.
+    assert dc.put(f"/api/nodes/{folder}/shares", {"teams": []}, format="json").status_code == 403
+    assert ac.get(f"/api/nodes/{folder}/shares").json()["shared"][0]["name"] == "Netz"
+    # Edit for a team needs the owner, and the owner's audit entry carries no folder name.
+    assert put([], [{"team": team["id"], "edit": True}]).status_code == 200 and dc.put(f"/api/pages/{page}/content", {"html": "<p>y</p>", "base_version": 3}, format="json").status_code == 200
+    from .models import AuditLog
+    logs = AuditLog.objects.filter(action="permissions", details__has_key="freigabe")
+    assert logs.exists() and not any("Mein Ordner" in str(l.details) or l.node_title == "Mein Ordner" for l in logs)
+
+
+def test_private_share_validation_and_people_search(admin, db):
+    ann, ac, ben, bc, cy, cc, dora, dc, tm, tmc, team, root, folder, sub, page, other = _private_setup(admin)
+    put = lambda body, n=None: ac.put(f"/api/nodes/{n or folder}/shares", body, format="json")
+    assert put({"users": [{"user": ann.id}]}).status_code == 400  # not yourself
+    assert put({"users": [{"user": 99999}]}).status_code == 400 and put({"users": [{"user": "x"}]}).status_code == 400
+    assert put({"users": [{"user": ben.id}]}, n=page).status_code == 400 and put({"users": [{"user": ben.id}]}, n=root).status_code == 400  # folders only, not the area
+    ben.is_active = False
+    ben.save()
+    assert put({"users": [{"user": ben.id}]}).status_code == 400  # blocked accounts cannot receive
+    assert put({"users": [{"user": cy.id}], "teams": [{"team": 99999}]}).status_code == 400
+    # Only the owner shares; an admin cannot even see the folder.
+    assert admin.put(f"/api/nodes/{folder}/shares", {"users": [{"user": cy.id}]}, format="json").status_code == 404
+    assert bc.put(f"/api/nodes/{folder}/shares", {"users": [{"user": cy.id}]}, format="json").status_code in (403, 404)
+    # Finding people: two letters at least, active others only, never yourself.
+    assert [p["username"] for p in ac.get("/api/people", {"q": "c"}).json()] == []
+    assert [p["username"] for p in ac.get("/api/people", {"q": "cy"}).json()] == ["cy"]
+    assert "anna" not in [p["username"] for p in ac.get("/api/people", {"q": "an"}).json()] and "ben" not in [p["username"] for p in ac.get("/api/people", {"q": "ben"}).json()]
+    assert APIClient().get("/api/people", {"q": "cy"}).status_code in (401, 403)

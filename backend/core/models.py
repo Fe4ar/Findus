@@ -38,6 +38,8 @@ class Node(models.Model):
     inherit_rights = models.BooleanField(default=True)
     # Only on areas: "never without login" – is_public can no longer be set anywhere in this area (internal areas, team areas).
     never_public = models.BooleanField(default=False)
+    # Files that came in inline (pasted image, embedded document): attachments of a page, kept out of tree and folder listings.
+    hidden = models.BooleanField(default=False)
     # Only on root areas: the personal area of one user ("Mein Bereich"). Only this user may use it, nobody else, admins
     # included (permissions.can); PROTECT, so deleting the user can never turn it into an ordinary area.
     owner = models.ForeignKey(User, null=True, blank=True, on_delete=models.PROTECT, related_name="private_areas")
@@ -103,6 +105,17 @@ class FileVersion(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+
+
+class UserShare(models.Model):
+    """A folder of someone's private area shared with one other user (look, or edit as well). Teams get private folders through
+    NodePermission rows of their groups, like any shared folder; see core/shares.py and permissions.shared_actions."""
+    node = models.ForeignKey("Node", on_delete=models.CASCADE, related_name="user_shares")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="+")
+    can_write = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["node", "user"], name="core_usershare_unique")]
 
 
 class NodePermission(models.Model):

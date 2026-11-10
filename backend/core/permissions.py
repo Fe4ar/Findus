@@ -27,6 +27,29 @@ def _grants(user):
     return cache
 
 
+def _user_shares(user):
+    """{node id: actions} of the folders other users shared with this user (private areas), cached for the request."""
+    cache = getattr(user, "_findus_user_shares", None)
+    if cache is None:
+        from .models import UserShare
+        cache = {}
+        for s in UserShare.objects.filter(user=user).values("node_id", "can_write"):
+            cache[s["node_id"]] = {READ, WRITE, PUBLISH} if s["can_write"] else {READ}
+        user._findus_user_shares = cache
+    return cache
+
+
+def shared_actions(user, node):
+    """What a non-owner may do inside someone's private area: only what was shared with them, on the shared folder and below.
+    Team shares are NodePermission rows of the team groups on the folder, user shares are UserShare rows. Never MANAGE."""
+    chain = _chain(node)[:-1]  # without the area itself: it is never shared, only folders in it
+    grants, mine = _grants(user), _user_shares(user)
+    out = set()
+    for n in chain:
+        out |= (grants.get(n.pk, set()) & {READ, WRITE, PUBLISH}) | mine.get(n.pk, set())
+    return out
+
+
 def _chain(node):
     """[node, parent, …, root]; cached on the node because views ask several actions per node."""
     chain = getattr(node, "_findus_chain", None)
@@ -73,8 +96,18 @@ def can(user, action, node=None):
     if node is not None and any(n.deleted_at is not None for n in _chain(node)):
         return False
     if node is not None and _chain(node)[-1].owner_id is not None:
-        # Personal area: only its owner, with every right, before any admin or group rule can apply.
-        return bool(user and user.is_authenticated and user.is_active and user.pk == _chain(node)[-1].owner_id)
+        # Personal area: its owner with every right, before any admin or group rule can apply; everybody else (admins too) only
+        # what the owner shared on a folder (shared_actions), never the right to manage.
+        if not (user and user.is_authenticated and user.is_active):
+            return False
+        if user.pk == _chain(node)[-1].owner_id:
+            return True
+        if action == MANAGE:
+            return False
+        actions = shared_actions(user, node)  # no function gate: like the owner's own area it also works for people without a team
+        if action == READ and node.status == node.DRAFT:
+            return bool(actions & {WRITE, PUBLISH})
+        return action in actions
     if user is None or not user.is_authenticated:
         return action == READ and node is not None and is_public(node)
     if not user.is_active:

@@ -54,7 +54,7 @@ def user_name(u):
 
 def node_summary(n, ctx=None):
     out = {"id": n.id, "kind": n.kind, "title": n.title, "status": n.status, "position": n.position,
-           "has_children": n.kind in Node.CONTAINERS and n.children.filter(deleted_at=None).exists()}
+           "has_children": n.kind in Node.CONTAINERS and n.children.filter(deleted_at=None, hidden=False).exists()}
     if ctx is not None and n.kind in Node.CONTAINERS and n.space == Node.WIKI:
         out["vis"] = ctx.visibility(n)  # same logic as the "Wirksam" column of the rights page
         out["team"] = ctx.team_of_area.get(n.pk)
@@ -77,11 +77,14 @@ def node_detail(user, n):
     }
     from .shares import share_root
     via = share_root(user, n)
-    if via:  # reached through a folder another team shared: the path starts there, the tab is the receiving team's
+    if via:  # reached through a folder somebody shared: the path starts there, the tab is the receiving team's (or Privat for a user share)
         root, team_id = via
         ids = [b["id"] for b in data["breadcrumb"]]
         data["breadcrumb"] = data["breadcrumb"][ids.index(root.id):] if root.id in ids else []
-        data["via_team"] = team_id
+        if team_id is not None:
+            data["via_team"] = team_id
+        else:
+            data["via_user"] = True
     if n.kind in Node.REVISIONED:
         rev = n.revisions.first()
         data["content"] = rev.content if rev else None
@@ -261,7 +264,7 @@ def tree(request):
     parent_id = request.query_params.get("parent") or None
     if parent_id:
         parent = node_or_404(request.user, parent_id)
-        qs = parent.children.filter(deleted_at=None)
+        qs = parent.children.filter(deleted_at=None, hidden=False)  # inline attachments of pages stay out of the tree
     else:
         space = request.query_params.get("space") or Node.WIKI
         if space == Node.KARTE and request.user.is_authenticated and "network" not in enabled(request.user):
@@ -279,9 +282,19 @@ def tree(request):
             qs = qs.filter(is_public=False, team=None)
     from .shares import can_share
     ctx = rights.Context()
-    return Response([{**node_summary(n, ctx), "writable": can(request.user, WRITE, n),
-                      **({"can_share": can_share(request.user, n)} if n.kind == Node.FOLDER else {})}
-                     for n in qs if can(request.user, READ, n)])
+    out = []
+    for n in qs:
+        if not can(request.user, READ, n):
+            continue
+        row = {**node_summary(n, ctx), "writable": can(request.user, WRITE, n),
+               **({"can_share": can_share(request.user, n)} if n.kind == Node.FOLDER else {})}
+        if n.kind == Node.FOLDER and n.space == Node.WIKI:
+            if row.get("can_share") or not _chain(n)[-1].owner_id:
+                row["shared"] = [*row.get("shared", []), *[user_name(s.user) for s in n.user_shares.select_related("user")]]
+            else:
+                row["shared"] = []  # a recipient of a private folder does not see with whom else it is shared
+        out.append(row)
+    return Response(out)
 
 
 @api_view(["POST"])
@@ -322,6 +335,26 @@ def node_create(request):
         node.save(update_fields=["never_public"])
     audit.log(request, "create", node, kind=kind)
     return Response(node_detail(request.user, node), status=201)
+
+
+@api_view(["POST"])
+def node_reorder(request, node_id):
+    """Body {before: <sibling id>|null}: put the node in front of that sibling of the same folder (null = last). Needs the write right
+    in the folder; files and other kinds are listed together, hidden attachments are not part of the order."""
+    node = node_or_404(request.user, node_id, WRITE)
+    parent = node.parent
+    if parent is None or not can(request.user, WRITE, parent):
+        raise PermissionDenied("Die Reihenfolge ändert, wer im Ordner schreiben darf.")
+    rows = [n for n in Node.objects.filter(parent=parent, space=node.space, deleted_at=None, hidden=False) if n.pk != node.pk]
+    before = request.data.get("before")
+    ids = [str(n.pk) for n in rows]
+    if before is not None and str(before) not in ids:
+        raise ValidationError({"before": "Zielposition liegt nicht in diesem Ordner."})
+    rows.insert(ids.index(str(before)) if before is not None else len(rows), node)
+    for i, n in enumerate(rows):
+        n.position = i
+    Node.objects.bulk_update(rows, ["position"])
+    return Response({"ok": True})
 
 
 @api_view(["GET", "PATCH", "DELETE"])

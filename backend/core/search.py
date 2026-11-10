@@ -203,9 +203,10 @@ def run(user, text, faq_only=False, scopes=(), exact=False):
         if exact and not all(p.search(n.title) or p.search(n.search_text or "") for p in pats):
             continue
         kind, team = scope.bucket(chain[0])
+        mine_private = kind == "private" and chain[0].owner_id == getattr(user, "pk", None)
         hits.append({"id": n.id, "kind": n.kind, "title": n.title,
                      "path": " / ".join(a.title for a in n.ancestors()),
-                     "group": "Privat" if kind == "private" else chain[0].title,
+                     "group": "Privat" if mine_private else (f"Freigegeben von {(chain[0].owner.get_full_name() or chain[0].owner.get_username())}" if kind == "private" else chain[0].title),
                      "bucket": kind, "team": team.pk if team else None,
                      # ts_headline returns the start of the text when only the title matched.
                      "snippet": (exact_snippet(n.search_text, pats) if exact else n.snippet) if n.search_text else ""})

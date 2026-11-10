@@ -40,6 +40,7 @@ export interface NodeDetail extends NodeSummary {
   space: "wiki" | "karte";
   breadcrumb: { id: string; title: string; kind: Kind }[];
   via_team?: number; // reached through a folder another team shared with this team
+  via_user?: boolean; // reached through a private folder somebody shared with this user alone
   permissions: { read: boolean; write: boolean; publish: boolean; manage: boolean };
   content?: object | null;
   target?: string | null; // links: the referenced node (a .drawio file)

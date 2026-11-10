@@ -998,3 +998,13 @@ button.link { background: none; border: 0; padding: 0; color: var(--accent); tex
 .ProseMirror div[data-docfile] { margin: var(--space-3) 0; padding: var(--space-2) var(--space-3); border: 1px dashed var(--border-strong, var(--border)); border-radius: var(--radius); color: var(--muted); }
 .ProseMirror div[data-docfile]::before { content: "📎 " attr(data-docname) " (eingebettetes Dokument)"; }
 .ProseMirror div[data-docfile].ProseMirror-selectednode { outline: 2px solid var(--accent); }
+
+/* reordering inside a folder: a line where the item will land */
+.row.gap-before { box-shadow: inset 0 2px 0 var(--accent); }
+.row.gap-after { box-shadow: inset 0 -2px 0 var(--accent); }
+
+.share-users { border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-2) var(--space-3) var(--space-3); margin: var(--space-3) 0; display: grid; gap: var(--space-2); }
+.share-users legend { font-size: 0.85rem; color: var(--muted); padding: 0 var(--space-2); }
+.share-found { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
+.share-found li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-1) var(--space-3); }
+.share-sub { margin: var(--space-3) 0 0; font-size: 0.85rem; color: var(--muted); }
