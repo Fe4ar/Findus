@@ -56,6 +56,14 @@ def team_or_404(user, team_id, lead=False):
 
 # --- users ----------------------------------------------------------------------------------------------------
 
+PASSWORD_ALPHABET = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no look-alikes (0/O, 1/l/I)
+
+
+def generate_password(length=16):
+    import secrets
+    return "".join(secrets.choice(PASSWORD_ALPHABET) for _ in range(length))
+
+
 def user_data(u):
     return {"id": u.id, "username": u.username, "name": user_name(u), "first_name": u.first_name, "last_name": u.last_name,
             "email": u.email, "is_active": u.is_active, "is_superuser": u.is_superuser,
@@ -63,6 +71,7 @@ def user_data(u):
             "teams": [{"id": m.team_id, "name": m.team.name, "leader": m.is_leader, "can_write": m.is_leader or m.can_write}
                       for m in u.team_memberships.all()],
             "can_download": getattr(getattr(u, "findus_settings", None), "can_download", True),
+            "must_change_password": getattr(getattr(u, "findus_settings", None), "must_change_password", False),
             "last_login": u.last_login, "deleted_at": _deleted_at(u),
             "purge_at": (_deleted_at(u) + timedelta(days=IntegrationSettings.retention_days())) if _deleted_at(u) else None}
 
@@ -103,12 +112,20 @@ def users(request):
         name = str(d.get("username") or "").strip()
         if not name or User.objects.filter(username__iexact=name).exists():
             raise ValidationError({"username": "Benutzername fehlt oder ist vergeben."})
-        if len(str(d.get("password") or "")) < 8:
+        generate = bool(d.get("generate_password"))
+        password = generate_password() if generate else str(d.get("password") or "")
+        if len(password) < 8:
             raise ValidationError({"password": "Mindestens 8 Zeichen."})
-        u = User.objects.create_user(name, email=str(d.get("email") or ""), password=d["password"],
+        u = User.objects.create_user(name, email=str(d.get("email") or ""), password=password,
                                      first_name=str(d.get("first_name") or "")[:150], last_name=str(d.get("last_name") or "")[:150])
-        audit.log(request, "user", username=name, what="angelegt")
-        return Response(user_data(u), status=201)
+        force = bool(d.get("must_change_password", generate))  # a generated password is meant to be replaced by default
+        if force:
+            UserSettings.objects.update_or_create(user=u, defaults={"must_change_password": True})
+        audit.log(request, "user", username=name, what="angelegt", passwort="generiert" if generate else "gesetzt", wechsel_pflicht=force)
+        out = user_data(User.objects.select_related("findus_settings").get(pk=u.pk))
+        if generate:
+            out["generated_password"] = password  # shown to the admin once, never stored in clear text
+        return Response(out, status=201)
     qs = User.objects.prefetch_related("groups", "team_memberships__team").select_related("findus_settings").order_by("username")
     return Response({"users": [user_data(u) for u in qs],
                      "groups": [{"id": g.id, "name": g.name} for g in Group.objects.order_by("name") if not g.name.startswith("Team ")]})
@@ -153,6 +170,9 @@ def user_edit(request, user_id):
         u.set_password(d["password"])
         changed["password"] = "geändert"
     u.save()
+    if "must_change_password" in d:  # only the flag; the password itself stays untouched
+        UserSettings.objects.update_or_create(user=u, defaults={"must_change_password": bool(d["must_change_password"])})
+        changed["wechsel_pflicht"] = bool(d["must_change_password"])
     if "can_download" in d:
         UserSettings.objects.update_or_create(user=u, defaults={"can_download": bool(d["can_download"])})
         changed["can_download"] = bool(d["can_download"])

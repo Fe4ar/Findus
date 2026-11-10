@@ -1026,3 +1026,6 @@ body.side-dragging { cursor: col-resize; user-select: none; }
 .doc-embed.open iframe.pdf { display: block; width: 100%; border: 0; border-radius: 0; }
 .doc-embed.open .image-preview { display: block; margin: var(--space-3) auto; max-height: calc(100vh - 16rem); object-fit: contain; border: 0; }
 @media (max-width: 760px) { .doc-embed.open .oo-frame, .doc-embed.open iframe.pdf { height: max(24rem, calc(100vh - 12rem)); } }
+
+.generated-pw { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.generated-pw code { font-size: 1.15rem; letter-spacing: 0.04em; padding: 0.4rem 0.7rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); user-select: all; }

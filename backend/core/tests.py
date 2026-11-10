@@ -2308,3 +2308,34 @@ def test_clear_whole_audit_log(admin, db):
     assert len(rows) == 1 and rows[0].action == "audit" and rows[0].username == "chef" and rows[0].details == {"entries": n}
     assert APIClient().delete("/api/audit", {"confirm": "PROTOKOLL LÖSCHEN"}, format="json").status_code in (401, 403)
     assert admin.get("/api/audit").json()["total"] == 1
+
+
+def test_admin_generated_password_and_forced_change_flag(admin, db):
+    from .models import AuditLog, UserSettings
+    lead, lc = _member("lea")
+    # Generated password: returned once, works, forced change on by default, nothing in clear text in the log.
+    r = admin.post("/api/admin/users", {"username": "neu1", "generate_password": True}, format="json")
+    assert r.status_code == 201, r.content
+    pw = r.json()["generated_password"]
+    assert len(pw) == 16 and r.json()["must_change_password"] is True and "generated_password" not in admin.get("/api/admin/users").content.decode()
+    c = APIClient()
+    assert c.post("/api/auth/login", {"username": "neu1", "password": pw}, format="json").status_code == 200
+    assert c.get("/api/tree").status_code == 403 and c.get("/api/tree").json()["must_change_password"] is True
+    assert pw not in str(list(AuditLog.objects.values_list("details", flat=True)))
+    # Two generated passwords differ; own password without the force flag stays normal.
+    assert admin.post("/api/admin/users", {"username": "neu2", "generate_password": True}, format="json").json()["generated_password"] != pw
+    r = admin.post("/api/admin/users", {"username": "neu3", "password": "langes-passwort-1"}, format="json")
+    assert r.status_code == 201 and r.json()["must_change_password"] is False and "generated_password" not in r.json()
+    r = admin.post("/api/admin/users", {"username": "neu4", "generate_password": True, "must_change_password": False}, format="json")
+    assert r.json()["must_change_password"] is False
+    # Existing user: flag set and removed without touching the password.
+    u3 = User.objects.get(username="neu3"); before = u3.password
+    assert admin.patch(f"/api/admin/users/{u3.id}", {"must_change_password": True}, format="json").json()["must_change_password"] is True
+    assert User.objects.get(pk=u3.pk).password == before and UserSettings.objects.get(user=u3).must_change_password
+    c3 = APIClient(); assert c3.post("/api/auth/login", {"username": "neu3", "password": "langes-passwort-1"}, format="json").status_code == 200
+    assert c3.get("/api/tree").status_code == 403
+    assert admin.patch(f"/api/admin/users/{u3.id}", {"must_change_password": False}, format="json").json()["must_change_password"] is False
+    assert c3.get("/api/tree").status_code == 200
+    # Only admins.
+    assert lc.post("/api/admin/users", {"username": "x1", "generate_password": True}, format="json").status_code == 403
+    assert lc.patch(f"/api/admin/users/{u3.id}", {"must_change_password": True}, format="json").status_code == 403

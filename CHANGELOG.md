@@ -2,6 +2,12 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.8.5] - 2026-11-10
+
+### Added
+- Administrators can let Findus generate the password when creating a user: a strong random password is shown once (copyable) and never stored or logged in clear text
+- Administrators can force a password change at the next sign-in, when creating a user (on by default with a generated password) and for existing users, set or removed without changing the password. Administrators only
+
 ## [0.8.4] - 2026-11-10
 
 ### Added

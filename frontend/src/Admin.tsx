@@ -74,7 +74,7 @@ export function Admin({ me, path, go }: { me: Me; path: string; go: (p: string) 
 interface UserRow {
   id: number; username: string; name: string; first_name: string; last_name: string; email: string; is_active: boolean;
   is_superuser: boolean; groups: string[]; teams: { id: number; name: string; leader: boolean; can_write: boolean }[];
-  can_download: boolean; last_login: string | null; deleted_at: string | null; purge_at: string | null;
+  can_download: boolean; must_change_password: boolean; last_login: string | null; deleted_at: string | null; purge_at: string | null;
 }
 interface Group { id: number; name: string }
 
@@ -142,6 +142,9 @@ function Users({ go, me }: { go: (p: string) => void; me: Me }) {
 function UserDialog({ user, groups, onClose, onSaved, go }: { go: (p: string) => void; user: UserRow | null; groups: Group[]; onClose: () => void; onSaved: () => void }) {
   const [draft, setDraft] = useState(() => (user ? null : readDraft()));
   const [f, setF] = useState({ username: user?.username ?? draft?.f.username ?? "", first_name: user?.first_name ?? draft?.f.first_name ?? "", last_name: user?.last_name ?? draft?.f.last_name ?? "", email: user?.email ?? draft?.f.email ?? "", password: "", is_active: user?.is_active ?? true });
+  const [generate, setGenerate] = useState(false);
+  const [force, setForce] = useState(user?.must_change_password ?? false);
+  const [shown, setShown] = useState<{ username: string; password: string } | null>(null);
   const [sel, setSel] = useState<number[]>(() => user ? groups.filter((g) => user.groups.includes(g.name)).map((g) => g.id) : draft?.sel ?? []);
   const adminGroup = groups.find((g) => g.name === "Admin");  // other legacy groups stay as they are; rights come from teams
   const [teams, setTeams] = useState<TeamRow[]>([]);
@@ -153,12 +156,14 @@ function UserDialog({ user, groups, onClose, onSaved, go }: { go: (p: string) =>
   }, [user, f, sel, selTeams]);
   const discard = () => { setDraft(null); setF({ ...f, username: "", first_name: "", last_name: "", email: "", password: "" }); setSel([]); setSelTeams([]); writeDraft(null); };
   useEffect(() => { api<TeamRow[]>("/api/teams").then(setTeams).catch(err); }, []);
+  const done = () => { onSaved(); if (getReturn() === "open-team") go("/verwaltung/teams"); };
   const save = async () => {
     try {
       let id = user?.id;
       if (!user) {
-        const u = await api<UserRow>("/api/admin/users", { method: "POST", body: f });
+        const u = await api<UserRow & { generated_password?: string }>("/api/admin/users", { method: "POST", body: { ...f, password: generate ? undefined : f.password, generate_password: generate, must_change_password: force } });
         id = u.id;
+        if (u.generated_password) setShown({ username: u.username, password: u.generated_password });
         if (getReturn() === "new-user") {  // started from "Neues Team": add the new user there and go back
           const td = readTeamDraft() ?? { name: "", members: [] };
           writeTeamDraft({ ...td, members: [...td.members, { user: u.id, username: u.username, name: u.name || u.username, is_leader: !td.members.length, can_write: false }] });
@@ -166,7 +171,7 @@ function UserDialog({ user, groups, onClose, onSaved, go }: { go: (p: string) =>
         }
         if (sel.length) await api(`/api/admin/users/${u.id}`, { method: "PATCH", body: { groups: sel } });
       } else {
-        await api(`/api/admin/users/${user.id}`, { method: "PATCH", body: { ...f, password: f.password || undefined, groups: sel } });
+        await api(`/api/admin/users/${user.id}`, { method: "PATCH", body: { ...f, password: f.password || undefined, groups: sel, must_change_password: force } });
       }
       // Team membership uses the same API as Teams > Mitglieder; the leader role stays there.
       for (const t of teams) {
@@ -176,21 +181,31 @@ function UserDialog({ user, groups, onClose, onSaved, go }: { go: (p: string) =>
         await api(`/api/teams/${t.id}`, { method: "PATCH", body: { members: members.map((m) => ({ user: m.user, is_leader: m.is_leader, can_write: m.can_write })) } });
       }
       writeDraft(null);
-      onSaved();
-      if (getReturn() === "open-team") go("/verwaltung/teams");
+      if (generate) return;  // the generated password is shown first (setShown above); "Fertig" finishes
+      done();
     } catch (e) { err(e); }
   };
   const field = (k: "username" | "first_name" | "last_name" | "email" | "password", label: string, type = "text") => (
     <label>{label}<input type={type} value={f[k]} disabled={k === "username" && !!user} autoComplete="off"
       onChange={(e) => setF({ ...f, [k]: e.target.value })} /></label>
   );
+  if (shown) return (
+    <Modal title={`Benutzer ${shown.username} angelegt`} onClose={done}>
+      <p>Das Passwort wird <strong>nur jetzt einmal</strong> angezeigt und nicht gespeichert. Bitte kopieren und dem Benutzer sicher weitergeben.</p>
+      <p className="generated-pw"><code>{shown.password}</code> <button type="button" onClick={() => navigator.clipboard?.writeText(shown.password).then(() => notify("Passwort kopiert.", false)).catch(() => notify("Kopieren nicht möglich, bitte markieren."))}>Kopieren</button></p>
+      {force && <p className="muted small">Der Benutzer muss das Passwort beim ersten Login ändern.</p>}
+      <div className="actions"><span className="spacer" /><button className="primary" onClick={done}>Fertig</button></div>
+    </Modal>
+  );
   return (
     <Modal title={user ? `Benutzer ${user.username}` : "Neuer Benutzer"} onClose={onClose}>
       {draft && <p className="draft-note" role="status">Entwurf wiederhergestellt. <button type="button" onClick={discard}>Verwerfen</button></p>}
       <div className="form-grid">
         {field("username", "Benutzername")}{field("first_name", "Vorname")}{field("last_name", "Nachname")}{field("email", "E-Mail", "email")}
-        {field("password", user ? "Neues Passwort (leer = unverändert)" : "Passwort (mind. 8 Zeichen)", "password")}
+        {!(generate && !user) && field("password", user ? "Neues Passwort (leer = unverändert)" : "Passwort (mind. 8 Zeichen)", "password")}
       </div>
+      {!user && <label className="check"><input type="checkbox" checked={generate} onChange={(e) => { setGenerate(e.target.checked); setForce(e.target.checked); }} /> Passwort automatisch generieren (wird einmal angezeigt)</label>}
+      <label className="check"><input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} /> Muss das Passwort beim nächsten Login ändern{user ? " (das Passwort bleibt unverändert)" : ""}</label>
       {adminGroup && (
         <label className="check"><input type="checkbox" checked={sel.includes(adminGroup.id)}
           onChange={(e) => setSel(e.target.checked ? [...sel, adminGroup.id] : sel.filter((x) => x !== adminGroup.id))} /> Administrator (sieht und darf alles)</label>
