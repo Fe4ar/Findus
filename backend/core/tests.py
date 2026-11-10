@@ -2088,3 +2088,16 @@ def test_page_keeps_embedded_document_blocks_and_files_stay_in_the_folder(client
     assert [h["title"] for h in client.get("/api/search", {"q": "notfallplan"}).json()] == ["Plan.docx"]
     assert client.get(f"/api/nodes/{fid}").json()["permissions"]["write"] is True
     assert APIClient().get(f"/api/nodes/{fid}").status_code in (401, 403, 404)
+
+
+def test_file_downloads_may_be_framed_by_the_own_page_only(client):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    area = create(client, "area", "IT")
+    r = client.post("/api/files", {"parent": area, "file": SimpleUploadedFile("Plan.pdf", _pdf("Hallo"), content_type="application/pdf")}, format="multipart")
+    assert r.status_code == 201
+    url = r.json()["versions"][0]["url"]
+    for suffix in ("", "?download=1"):
+        resp = client.get(url + suffix)
+        assert resp.status_code == 200 and resp["X-Frame-Options"] == "SAMEORIGIN"  # the PDF preview is an iframe on our own origin
+    assert client.get(url)["Content-Type"] == "application/pdf" and "inline" in client.get(url)["Content-Disposition"]
+    assert client.get("/api/auth/me")["X-Frame-Options"] == "DENY"  # everything else stays unframeable

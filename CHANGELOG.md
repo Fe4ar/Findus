@@ -2,6 +2,11 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.8.2] - 2026-11-10
+
+### Fixed
+- PDFs show again in the page: the PDF view of a file and embedded PDF blocks failed with "… refused to connect" because file responses carried `X-Frame-Options: DENY`, which also blocked the page's own preview frame. File responses now allow framing by the same origin only (`SAMEORIGIN`); all other responses stay unframeable. Works independent of host and port
+
 ## [0.8.1] - 2026-11-09
 
 ### Fixed

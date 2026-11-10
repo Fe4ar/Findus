@@ -137,6 +137,9 @@ def _file_response(fv, download):
         mime, inline = "text/plain; charset=utf-8", True
     resp = FileResponse(fv.file.open("rb"), as_attachment=not inline, filename=fv.original_name, content_type=mime)
     resp["X-Content-Type-Options"] = "nosniff"
+    # The page shows PDFs (and embedded documents) in an iframe of its own origin; Django's default DENY would make the
+    # browser refuse that frame ("… hat die Verbindung abgelehnt"). SAMEORIGIN still keeps other sites from framing files.
+    resp["X-Frame-Options"] = "SAMEORIGIN"
     if mime.startswith("text/"):
         resp["Content-Security-Policy"] = "sandbox"
     return resp
