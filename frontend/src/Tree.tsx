@@ -78,6 +78,7 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
     api<NodeSummary[]>("/api/tree?space=wiki").then((l) => setVis(l.find((n) => n.id === rootId)?.vis)).catch(() => undefined);
   }, [head, rootId, version]);
   const [incoming, setIncoming] = useState<NodeSummary[]>([]);
+  const [headDrop, setHeadDrop] = useState(false); // dragging over the team name: the item goes to the very top of the team
   // Folders other teams shared with the user's teams, below the team's own tree.
   useEffect(() => {
     if (!rootId) return;
@@ -127,7 +128,8 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
 
   const m = menu;
   const move = (id: string, target: string | null) => run(() => api(`/api/nodes/${id}`, { method: "PATCH", body: { parent: target } }));
-  const reorder = (id: string, before: string | null) => run(() => api(`/api/nodes/${id}/reorder`, { method: "POST", body: { before } }));
+  const reorder = (id: string, before: string | null, parent?: string | null, first?: boolean) =>
+    run(() => api(`/api/nodes/${id}/reorder`, { method: "POST", body: { before, ...(parent ? { parent } : {}), ...(first ? { first: true } : {}) } }));
   return (
     <div
       className="tree"
@@ -146,7 +148,10 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
       }}
     >
       {head && (
-        <div className={`tree-head${selected === rootId ? " selected" : ""}`}>
+        <div className={`tree-head${selected === rootId ? " selected" : ""}${headDrop ? " drop" : ""}`}
+          onDragOver={(e) => { if (rootId && dragging && e.dataTransfer.types.includes("text/x-node")) { e.preventDefault(); setHeadDrop(true); } }}
+          onDragLeave={() => setHeadDrop(false)}
+          onDrop={(e) => { setHeadDrop(false); const id = e.dataTransfer.getData("text/x-node"); if (rootId && id) { e.preventDefault(); reorder(id, null, rootId, true); } }}>
           <button className="tree-head-name" onClick={() => onSelect(null)} title={head}>
             <Icon name="users" size={16} /><span className="label-text">{head}</span>
           </button>
@@ -255,7 +260,7 @@ interface BranchProps {
   version: number;
   onMenu: (m: Menu) => void;
   onMove: (id: string, target: string | null) => void;
-  onReorder: (id: string, before: string | null) => void;
+  onReorder: (id: string, before: string | null, parent?: string | null) => void;
   onOpenTab?: (id: string) => void;
   dots?: boolean; // visibility as a dot only (the team head already says who may see the area)
 }
@@ -307,7 +312,7 @@ function Item({ node, depth, selected, onSelect, version, onMenu, onMove, onReor
           // Same folder: the upper or lower quarter of a row (the whole row for a page) puts the item in front of / behind it;
           // the middle of a folder row moves the item into the folder.
           const r = e.currentTarget.getBoundingClientRect(), y = (e.clientY - r.top) / r.height;
-          const sibling = !!dragging && dragging.id !== node.id && dragging.parent === (parentId ?? null) && node.kind !== "area";
+          const sibling = !!dragging && dragging.id !== node.id && node.kind !== "area" && !!parentId; // next to a row of the same folder, of another folder or of a higher level
           if (sibling && (!container || y < 0.28 || y > 0.72)) { e.preventDefault(); e.stopPropagation(); setDropTarget(false); setGap(y < 0.5 ? "before" : "after"); }
           else if (container) { e.preventDefault(); setGap(null); setDropTarget(true); }
         }}
@@ -315,7 +320,7 @@ function Item({ node, depth, selected, onSelect, version, onMenu, onMove, onReor
         onDrop={(e) => {
           const id = e.dataTransfer.getData("text/x-node");
           const g = gap; setGap(null);
-          if (g && id && id !== node.id) { e.preventDefault(); e.stopPropagation(); setDropTarget(false); const before = g === "before" ? node.id : next ?? null; if (before !== id) onReorder(id, before); return; }
+          if (g && id && id !== node.id) { e.preventDefault(); e.stopPropagation(); setDropTarget(false); const before = g === "before" ? node.id : next ?? null; if (before !== id) onReorder(id, before, parentId ?? null); return; }
           if (!container) return; // let it bubble to the tree (top-level drop in the map tree)
           e.preventDefault();
           e.stopPropagation();

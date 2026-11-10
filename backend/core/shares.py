@@ -179,9 +179,10 @@ def incoming(request):
         n = p.node
         root = _chain(n)[-1]
         owner = owner_team(n)
-        if root.owner_id == user.pk or (owner and owner.pk in mine) or (owner is None and root.owner_id is None) or not can(user, "read", n):
+        # The owner of a private folder sees it under its team too (marked "Du"), so they can check where they shared it.
+        if (owner and owner.pk in mine) or (owner is None and root.owner_id is None) or not can(user, "read", n):
             continue
-        label = (user_name(root.owner) + " (privat)") if root.owner_id else owner.name
+        label = ("Du" if root.owner_id == user.pk else user_name(root.owner)) + " (privat)" if root.owner_id else owner.name
         row = out.setdefault(n.pk, {"id": n.id, "title": n.title, "from_team": label, "edit": False, "to": groups[p.group_id].name, "to_user": False})
         row["edit"] = row["edit"] or (p.can_write and can(user, WRITE, n))
     for s in UserShare.objects.filter(user=user, node__deleted_at=None).select_related("node"):

@@ -2339,3 +2339,120 @@ def test_admin_generated_password_and_forced_change_flag(admin, db):
     # Only admins.
     assert lc.post("/api/admin/users", {"username": "x1", "generate_password": True}, format="json").status_code == 403
     assert lc.patch(f"/api/admin/users/{u3.id}", {"must_change_password": True}, format="json").status_code == 403
+
+
+# --- v0.8.6: identical file content is stored once; file versions are cleaned up per team (default: keep everything) -------------
+
+def _up(client, parent, name, data):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    r = client.post("/api/files", {"parent": str(parent), "file": SimpleUploadedFile(name, data)})
+    assert r.status_code == 201, r.content
+    return r.json()["id"]
+
+
+def test_identical_files_share_one_stored_file(admin, db):
+    from .models import FileVersion
+    area = create(admin, "area", "Dedup")
+    a, b = _up(admin, area, "a.txt", b"gleicher inhalt"), _up(admin, area, "b.txt", b"gleicher inhalt")
+    c = _up(admin, area, "c.txt", b"anderer inhalt")
+    va, vb, vc = (FileVersion.objects.get(node_id=n) for n in (a, b, c))
+    assert va.file.name == vb.file.name and va.file.name != vc.file.name and va.sha256 == vb.sha256
+    storage = va.file.storage
+    assert vb.file.open("rb").read() == b"gleicher inhalt"
+    from .admin_api import purge
+    purge(Node.objects.get(pk=a))  # the other version still uses the file: it stays
+    assert storage.exists(va.file.name) and FileVersion.objects.get(node_id=b).file.read() == b"gleicher inhalt"
+    purge(Node.objects.get(pk=b))
+    assert not storage.exists(va.file.name) and storage.exists(vc.file.name)
+    # A new version and a restore with known content reuse the stored file as well.
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    assert admin.post(f"/api/files/{c}/versions", {"file": SimpleUploadedFile("c.txt", b"neu")}).status_code == 200
+    assert admin.post(f"/api/files/{c}/versions", {"file": SimpleUploadedFile("c.txt", b"anderer inhalt")}).status_code == 200
+    names = list(FileVersion.objects.filter(node_id=c).values_list("file", flat=True))
+    assert len(names) == 3 and len(set(names)) == 2
+
+
+def test_file_version_retention_per_team(admin, db):
+    from datetime import timedelta
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    from django.core.management import call_command
+    from django.utils import timezone
+    from .models import AuditLog, FileVersion
+    lead, lc = _member("lea"); plain, pc = _member("pia")
+    team = _team(admin, "Archiv", lead, [(plain, True)])
+    node = _up(lc, team["area"], "doc.txt", b"v1")
+    for i in (2, 3, 4, 5):
+        assert lc.post(f"/api/files/{node}/versions", {"file": SimpleUploadedFile("doc.txt", f"v{i}".encode())}).status_code == 200
+    vs = list(FileVersion.objects.filter(node_id=node).order_by("created_at"))
+    assert len(vs) == 5
+    for v, days in zip(vs, (400, 300, 20, 10, 0)):
+        FileVersion.objects.filter(pk=v.pk).update(created_at=timezone.now() - timedelta(days=days))
+    # Default: nothing configured, nothing deleted.
+    assert team["file_keep_versions"] is None and team["file_keep_days"] is None
+    call_command("purge_file_versions")
+    assert FileVersion.objects.filter(node_id=node).count() == 5
+    # Validation and rights: both values together, plain members cannot change it.
+    url = f"/api/teams/{team['id']}"
+    assert lc.patch(url, {"file_keep_versions": 2}, format="json").status_code == 400
+    assert lc.patch(url, {"file_keep_versions": 0, "file_keep_days": 30}, format="json").status_code == 400
+    assert pc.patch(url, {"file_keep_versions": 2, "file_keep_days": 30}, format="json").status_code in (403, 404)
+    r = lc.patch(url, {"file_keep_versions": 2, "file_keep_days": 30}, format="json")
+    assert r.status_code == 200 and r.json()["file_keep_versions"] == 2 and r.json()["file_keep_days"] == 30
+    call_command("purge_file_versions", dry_run=True)
+    assert FileVersion.objects.filter(node_id=node).count() == 5
+    call_command("purge_file_versions")
+    # Newest 2 stay (10 and 0 days); of the others only those older than 30 days go (400, 300); the 20-day one stays.
+    assert FileVersion.objects.filter(node_id=node).count() == 3 and FileVersion.objects.filter(node_id=node).order_by("-created_at").first().sha256
+    assert AuditLog.objects.filter(username="System", team_id=team["id"]).count() == 1
+    # N larger than the count: nothing more goes however old; clearing the setting keeps everything again.
+    assert lc.patch(url, {"file_keep_versions": 10, "file_keep_days": 1}, format="json").status_code == 200
+    call_command("purge_file_versions")
+    assert FileVersion.objects.filter(node_id=node).count() == 3
+    assert lc.patch(url, {"file_keep_versions": None, "file_keep_days": None}, format="json").json()["file_keep_days"] is None
+    # Files of a team without settings and private areas are never touched.
+    other = _team(admin, "Anderes", plain)
+    onode = _up(admin, other["area"], "o.txt", b"o1")
+    call_command("purge_file_versions")
+    assert FileVersion.objects.filter(node_id=onode).count() == 1
+
+
+def test_reorder_moves_out_of_a_folder_and_to_the_top(admin, db):
+    lead, lc = _member("lea"); plain, pc = _member("pia")
+    team = _team(admin, "Ordnung", lead, [(plain, False)])
+    area = team["area"]
+    anleitungen, netzwerk = create(lc, "folder", "Anleitungen", area), create(lc, "folder", "Netzwerk", area)
+    switch = create(lc, "folder", "Switch", netzwerk)
+    page = create(lc, "page", "Seite", netzwerk)
+    order = lambda p: [n["title"] for n in lc.get(f"/api/tree?parent={p}").json()] if False else [x.title for x in Node.objects.filter(parent_id=p, deleted_at=None).order_by("position")]
+    assert order(area) == ["Anleitungen", "Netzwerk"]
+    # Out of "Netzwerk" in front of it, then to the very top, then behind "Anleitungen".
+    assert lc.post(f"/api/nodes/{switch}/reorder", {"before": netzwerk, "parent": area}, format="json").status_code == 200
+    assert order(area) == ["Anleitungen", "Switch", "Netzwerk"] and order(netzwerk) == ["Seite"]
+    assert lc.post(f"/api/nodes/{switch}/reorder", {"first": True, "parent": area}, format="json").status_code == 200
+    assert order(area) == ["Switch", "Anleitungen", "Netzwerk"]
+    assert lc.post(f"/api/nodes/{page}/reorder", {"before": None, "parent": anleitungen}, format="json").status_code == 200
+    assert order(anleitungen) == ["Seite"] and order(netzwerk) == []
+    assert lc.post(f"/api/nodes/{switch}/reorder", {"before": None, "parent": area}, format="json").status_code == 200  # same folder as before: plain reorder
+    assert order(area) == ["Anleitungen", "Netzwerk", "Switch"]
+    # Not into itself or its own subtree, not into a folder without write right, not before a foreign node.
+    assert lc.post(f"/api/nodes/{netzwerk}/reorder", {"before": None, "parent": netzwerk}, format="json").status_code == 400
+    sub = create(lc, "folder", "Unter", netzwerk)
+    assert lc.post(f"/api/nodes/{netzwerk}/reorder", {"before": None, "parent": sub}, format="json").status_code == 400
+    assert lc.post(f"/api/nodes/{switch}/reorder", {"before": anleitungen, "parent": netzwerk}, format="json").status_code == 400
+    other = create(admin, "area", "Fremd"); of = create(admin, "folder", "Fremdordner", other)
+    assert lc.post(f"/api/nodes/{switch}/reorder", {"first": True, "parent": of}, format="json").status_code in (403, 404)
+    assert pc.post(f"/api/nodes/{switch}/reorder", {"first": True, "parent": area}, format="json").status_code in (403, 404)
+    from .models import AuditLog
+    assert AuditLog.objects.filter(action="move", node_title="Switch").count() == 1  # moved out once; later calls stayed in the same folder
+
+
+def test_owner_sees_own_private_folder_shared_with_a_team(admin, db):
+    owner, oc = _member("otto"); mem, mc = _member("mia")
+    team = _team(admin, "Sicht", owner, [(mem, False)])
+    root = oc.get("/api/auth/me").json()["nav"]["private"]
+    folder = create(oc, "folder", "Privat an Team", root)
+    assert oc.put(f"/api/nodes/{folder}/shares", {"teams": [{"team": team["id"], "edit": False}], "users": []}, format="json").status_code == 200
+    mine = [r for r in oc.get("/api/shares/incoming").json() if r["title"] == "Privat an Team"]
+    assert len(mine) == 1 and mine[0]["from_team"] == "Du (privat)" and mine[0]["to_user"] is False
+    theirs = [r for r in mc.get("/api/shares/incoming").json() if r["title"] == "Privat an Team"]
+    assert len(theirs) == 1 and theirs[0]["from_team"] == "otto (privat)"

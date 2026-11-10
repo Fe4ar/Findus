@@ -5,6 +5,8 @@ from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.contrib.postgres.search import SearchVectorField
 from django.db import models
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 
 User = settings.AUTH_USER_MODEL
 
@@ -107,6 +109,14 @@ class FileVersion(models.Model):
         ordering = ["-created_at"]
 
 
+@receiver(post_delete, sender=FileVersion)
+def _drop_unreferenced_file(sender, instance, **kwargs):
+    """Versions with identical content share one stored file (files._save_version); it goes only when the last version using it is gone."""
+    name = instance.file.name
+    if name and not FileVersion.objects.filter(file=name).exists():
+        instance.file.storage.delete(name)
+
+
 class UserShare(models.Model):
     """A folder of someone's private area shared with one other user (look, or edit as well). Teams get private folders through
     NodePermission rows of their groups, like any shared folder; see core/shares.py and permissions.shared_actions."""
@@ -200,6 +210,10 @@ class Team(models.Model):
     trash_days = models.PositiveIntegerField(default=40)
     # Who may share the team's folders with other teams: only the leaders (default) or every member (see shares.py).
     share_by_members = models.BooleanField(default=False)
+    # Retention of old file versions (purge_file_versions): both empty = keep everything (default); both set = a version goes only when it is
+    # older than file_keep_days AND no longer among the newest file_keep_versions of its file.
+    file_keep_versions = models.PositiveIntegerField(null=True, blank=True)
+    file_keep_days = models.PositiveIntegerField(null=True, blank=True)
     # Functions switched off for this team (keys of features.FEATURES). Aufgaben and Netzwerk are off until an admin
     # releases them (OPT_IN), everything else is on until an admin switches it off.
     disabled_features = ArrayField(models.CharField(max_length=20), default=default_disabled_features, blank=True)

@@ -1029,3 +1029,5 @@ body.side-dragging { cursor: col-resize; user-select: none; }
 
 .generated-pw { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
 .generated-pw code { font-size: 1.15rem; letter-spacing: 0.04em; padding: 0.4rem 0.7rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); user-select: all; }
+
+.tree-head.drop { box-shadow: inset 0 -2px 0 var(--accent); background: var(--surface-2); }

@@ -2,6 +2,17 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.8.6] - 2026-11-10
+
+### Added
+- Identical file content is stored only once: uploads, new versions, restores and OnlyOffice/Collabora saves reuse an already stored file with the same checksum; a stored file is removed only when no version uses it any more
+- File version retention per team (set by the team leader or an administrator in the team settings): by default everything is kept. If set, a version of a team's file is deleted only when it is older than X days and no longer among the newest N versions of that file; the newest version is never deleted. Runs daily with the purge timer (migration 0030 adds the two team fields). Text page revisions are not affected
+- Folders and pages can be dragged out of their folder onto a higher level, in front of or behind rows of other folders, and onto the team name to put them at the very top
+
+### Changed
+- The owner of a private folder that is shared with a team sees it in that team's tab as well ("Du (privat)" under "Von anderen Teams")
+- The duplicate "Mein Konto" link at the bottom of the sidebar is gone; the profile menu at the top right stays
+
 ## [0.8.5] - 2026-11-10
 
 ### Added

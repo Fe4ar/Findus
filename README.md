@@ -1,6 +1,6 @@
 # Findus
 
-[![Version](https://img.shields.io/badge/version-0.8.5-orange)](https://github.com/Fe4ar/Findus/releases/latest)
+[![Version](https://img.shields.io/badge/version-0.8.6-orange)](https://github.com/Fe4ar/Findus/releases/latest)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 
 **English** · [Deutsch](#deutsch)
@@ -12,7 +12,7 @@ with Docker; nothing calls external services.
 
 > **Status:** private preview. Try the [demo](#demo) (static, fictional data, no backend).
 
-## Current version: <!--v-->0.8.5<!--/v--> · [Changelog](CHANGELOG.md)
+## Current version: <!--v-->0.8.6<!--/v--> · [Changelog](CHANGELOG.md)
 
 The latest stable release is shown in the badge above and on the [Releases](https://github.com/Fe4ar/Findus/releases) page;
 every release lists what changed in the [Changelog](CHANGELOG.md).
@@ -122,7 +122,7 @@ Wiki-Seiten, Dateien mit Versionen, Office-Dokumente im Browser (OnlyOffice), Sc
 Netzwerkkarten mit Live-Status, Teams mit eigenen Wissensbereichen und Rechten sowie ein öffentliches FAQ für Anwender.
 Alles läuft auf dem eigenen Server, ohne externe Dienste.
 
-**Aktuelle Version: <!--v-->0.8.5<!--/v-->** – was neu ist, steht im [Changelog](CHANGELOG.md) und bei den [Releases](https://github.com/Fe4ar/Findus/releases).
+**Aktuelle Version: <!--v-->0.8.6<!--/v-->** – was neu ist, steht im [Changelog](CHANGELOG.md) und bei den [Releases](https://github.com/Fe4ar/Findus/releases).
 Die Bilder oben zeigen eine Testinstanz mit erfundenen Daten, hier im dunklen Design; das helle Design gibt es zusätzlich.
 
 **Schnellstart:** `.env.example` nach `.env` kopieren und Secrets setzen, `docker compose up -d --build`,

@@ -339,21 +339,38 @@ def node_create(request):
 
 @api_view(["POST"])
 def node_reorder(request, node_id):
-    """Body {before: <sibling id>|null}: put the node in front of that sibling of the same folder (null = last). Needs the write right
-    in the folder; files and other kinds are listed together, hidden attachments are not part of the order."""
+    """Body {before: <node id>|null, first: bool, parent: <folder id>}: put the node in front of that node (null = last, first = at the top).
+    With "parent" the node first moves into that folder (or out of its folder onto a higher level), like a PATCH of the parent.
+    Needs the write right in the source and in the target folder; files and other kinds are listed together, hidden attachments are not part of the order."""
     node = node_or_404(request.user, node_id, WRITE)
-    parent = node.parent
-    if parent is None or not can(request.user, WRITE, parent):
+    old = node.parent
+    if old is None or not can(request.user, WRITE, old):
         raise PermissionDenied("Die Reihenfolge ändert, wer im Ordner schreiben darf.")
+    parent, moved = old, False
+    if "parent" in request.data and str(request.data["parent"] or "") != str(node.parent_id):
+        from .shares import guard_root
+        guard_root(request.user, node)  # a folder shared by another team is moved only by its owners
+        parent = node_or_404(request.user, request.data["parent"], WRITE) if request.data["parent"] else None
+        if parent is None:
+            raise ValidationError({"parent": "Zielordner fehlt."})
+        validate_parent(node.kind, parent, node.space)
+        if parent.pk == node.pk or node in parent.ancestors():
+            raise ValidationError({"parent": "Ein Ordner kann nicht in sich selbst verschoben werden."})
+        moved = True
     rows = [n for n in Node.objects.filter(parent=parent, space=node.space, deleted_at=None, hidden=False) if n.pk != node.pk]
     before = request.data.get("before")
     ids = [str(n.pk) for n in rows]
     if before is not None and str(before) not in ids:
         raise ValidationError({"before": "Zielposition liegt nicht in diesem Ordner."})
-    rows.insert(ids.index(str(before)) if before is not None else len(rows), node)
+    at = 0 if request.data.get("first") else ids.index(str(before)) if before is not None else len(rows)
+    rows.insert(at, node)
+    node.parent = parent
+    node.__dict__.pop("_findus_chain", None)  # rights are inherited from the new place
     for i, n in enumerate(rows):
         n.position = i
-    Node.objects.bulk_update(rows, ["position"])
+    Node.objects.bulk_update(rows, ["position", "parent"])
+    if moved:
+        audit.log(request, "move", node, parent=[str(old.pk), str(parent.pk)])
     return Response({"ok": True})
 
 

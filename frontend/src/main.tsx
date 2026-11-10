@@ -339,9 +339,6 @@ function App() {
             rootId={team?.area ?? (section === "private" ? me.nav?.private ?? undefined : undefined)} head={team ? teamLabel(team.name) : undefined} incoming={team ? "team" : section === "private" ? "user" : undefined} scope={section === "faq" ? "public" : section === "wiki" ? "other" : undefined}
             canCreateRoot={team ? team.write : section === "private" ? false : section === "faq" ? false : !!me.can_create_area}
             onOpenTab={(id) => openTab(`/n/${id}`)} />
-          <div className="sidebar-foot">
-            <a href="/verwaltung" onClick={(e) => { e.preventDefault(); dispatchEvent(new Event("findus-settings")); }}>Mein Konto</a>
-          </div>
         </nav>
       )}
       {section === "map" && (

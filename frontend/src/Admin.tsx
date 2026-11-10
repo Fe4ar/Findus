@@ -221,7 +221,7 @@ function UserDialog({ user, groups, onClose, onSaved, go }: { go: (p: string) =>
 // --- Teams -------------------------------------------------------------------------------------------------
 
 interface Member { user: number; username: string; name: string; is_leader: boolean; can_write: boolean }
-interface TeamRow { id: number; name: string; area: string | null; trash_days: number; share_by_members: boolean; features: Record<string, boolean>; can_manage: boolean; can_lead: boolean; members: Member[] }
+interface TeamRow { id: number; name: string; area: string | null; trash_days: number; share_by_members: boolean; file_keep_versions: number | null; file_keep_days: number | null; features: Record<string, boolean>; can_manage: boolean; can_lead: boolean; members: Member[] }
 
 function Teams({ me, go }: { me: Me; go: (p: string) => void }) {
   const [teams, setTeams] = useState<TeamRow[] | null>(null);
@@ -280,6 +280,9 @@ function TeamDialog({ team, admin, onClose, onSaved, go }: { go: (p: string) => 
   const [name, setName] = useState(team?.name ?? draft?.name ?? "");
   const [days, setDays] = useState(team?.trash_days ?? 40);
   const [shareByMembers, setShareByMembers] = useState(team?.share_by_members ?? false);
+  const [keepOn, setKeepOn] = useState(team?.file_keep_versions != null);
+  const [keepN, setKeepN] = useState(team?.file_keep_versions ?? 10);
+  const [keepDays, setKeepDays] = useState(team?.file_keep_days ?? 365);
   const [members, setMembers] = useState<Member[]>(team?.members ?? draft?.members ?? []);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [pick, setPick] = useState("");
@@ -292,10 +295,11 @@ function TeamDialog({ team, admin, onClose, onSaved, go }: { go: (p: string) => 
   const free = users.filter((u) => u.is_active && !members.some((m) => m.user === u.id));
   const set = (id: number, patch: Partial<Member>) => setMembers(members.map((m) => (m.user === id ? { ...m, ...patch } : m)));
   const save = async () => {
-    const body: any = { members: members.map((m) => ({ user: m.user, is_leader: m.is_leader, can_write: m.can_write })), trash_days: days };
+    const body: any = { members: members.map((m) => ({ user: m.user, is_leader: m.is_leader, can_write: m.can_write })), trash_days: days,
+      file_keep_versions: keepOn ? keepN : null, file_keep_days: keepOn ? keepDays : null };
     try {
       if (!team) await api("/api/teams", { method: "POST", body: { name, members: body.members } });
-      else await api(`/api/teams/${team.id}`, { method: "PATCH", body: admin ? { ...body, name, features, share_by_members: shareByMembers } : { members: body.members, trash_days: days, share_by_members: shareByMembers } });
+      else await api(`/api/teams/${team.id}`, { method: "PATCH", body: admin ? { ...body, name, features, share_by_members: shareByMembers } : { members: body.members, trash_days: days, share_by_members: shareByMembers, file_keep_versions: body.file_keep_versions, file_keep_days: body.file_keep_days } });
       writeTeamDraft(null);
       onSaved();
     } catch (e) { err(e); }
@@ -336,6 +340,20 @@ function TeamDialog({ team, admin, onClose, onSaved, go }: { go: (p: string) => 
           <legend>Wer darf Ordner dieses Teams an andere Teams freigeben?</legend>
           <label className="check-row"><input type="radio" name="share-by" checked={!shareByMembers} onChange={() => setShareByMembers(false)} /> Nur die Teamleitung</label>
           <label className="check-row"><input type="radio" name="share-by" checked={shareByMembers} onChange={() => setShareByMembers(true)} /> Alle Teammitglieder <span className="muted small">(Bearbeiten-Rechte vergeben nur Mitglieder mit Schreibrecht)</span></label>
+        </fieldset>
+      )}
+      {team && (
+        <fieldset className="share-setting file-keep">
+          <legend>Alte Datei-Versionen aufräumen</legend>
+          <label className="check-row"><input type="radio" name="file-keep" checked={!keepOn} onChange={() => setKeepOn(false)} /> Alle Versionen behalten <span className="muted small">(Standard, es wird nichts automatisch gelöscht)</span></label>
+          <label className="check-row"><input type="radio" name="file-keep" checked={keepOn} onChange={() => setKeepOn(true)} /> Automatisch aufräumen</label>
+          {keepOn && (
+            <div className="form-grid">
+              <label>Neueste Versionen behalten (N)<input type="number" min={1} max={1000} value={keepN} onChange={(e) => setKeepN(+e.target.value)} /></label>
+              <label>Mindestalter in Tagen (X)<input type="number" min={1} max={3650} value={keepDays} onChange={(e) => setKeepDays(+e.target.value)} /></label>
+            </div>
+          )}
+          <p className="muted small">Regel: Eine Datei-Version wird nur gelöscht, wenn sie <strong>älter als X Tage</strong> ist <strong>und</strong> nicht mehr zu den <strong>neuesten N Versionen</strong> ihrer Datei gehört. Beides muss zutreffen; die aktuelle Version bleibt immer. Gilt für Dateien dieses Teams, nicht für Textseiten und deren Versionen. Gelöscht wird einmal täglich.</p>
         </fieldset>
       )}
       <table className="admin-table compact">

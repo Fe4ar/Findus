@@ -1,6 +1,7 @@
 """Delete trashed items for good once their team's retention (default 40 days) has passed. Run daily by a systemd timer."""
 from datetime import timedelta
 
+from django.core.management import call_command
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
@@ -35,3 +36,4 @@ class Command(BaseCommand):
         self.stdout.write(f"{n} Einträge im Papierkorb, {old.count()} alte Aufrufe")
         if not dry_run:
             old.delete()
+        call_command("purge_file_versions", dry_run=dry_run, stdout=self.stdout)

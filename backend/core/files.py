@@ -66,7 +66,12 @@ def _save_version(node, fileobj, name, user, comment="", source=FileVersion.UPLO
     fv = FileVersion(node=node, original_name=name[:255], size=size, sha256=digest.hexdigest(), user=user,
                      comment=comment[:255], source=source,
                      mime=_guess_mime(name, getattr(fileobj, "content_type", None)))
-    fv.file.save(fv.id.hex, fileobj, save=False)
+    # Identical content (same hash and size) is stored once: the new version points at the file that already exists.
+    same = FileVersion.objects.filter(sha256=fv.sha256, size=size).exclude(file="").first()
+    if same and fv.file.storage.exists(same.file.name):
+        fv.file.name = same.file.name
+    else:
+        fv.file.save(fv.id.hex, fileobj, save=False)
     fv.save()
     node.search_text = version_text(fv)
     node.version += 1

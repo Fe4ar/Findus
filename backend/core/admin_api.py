@@ -192,6 +192,7 @@ def team_data(team, viewer):
     admin = is_admin(viewer)
     leader = admin or team.members.filter(user=viewer, is_leader=True).exists()
     return {"id": team.id, "name": team.name, "area": team.area_id, "trash_days": team.trash_days, "share_by_members": team.share_by_members,
+            "file_keep_versions": team.file_keep_versions, "file_keep_days": team.file_keep_days,
             "features": {k: k not in team.disabled_features for k in FEATURES},
             "can_manage": admin, "can_lead": leader,
             "members": [{"user": m.user_id, "username": m.user.username, "name": user_name(m.user),
@@ -252,6 +253,16 @@ def team_edit(request, team_id):
                 raise ValidationError({"trash_days": "1 bis 3650 Tage."})
             changed["trash_days"] = [team.trash_days, days]
             team.trash_days = days
+        if "file_keep_versions" in d or "file_keep_days" in d:
+            keep, age = d.get("file_keep_versions", team.file_keep_versions), d.get("file_keep_days", team.file_keep_days)
+            if (keep is None) != (age is None):
+                raise ValidationError({"file_keep_versions": "Anzahl und Alter nur zusammen setzen (beide leer = alles behalten)."})
+            if keep is not None and not (isinstance(keep, int) and not isinstance(keep, bool) and 1 <= keep <= 1000):
+                raise ValidationError({"file_keep_versions": "1 bis 1000 Versionen."})
+            if age is not None and not (isinstance(age, int) and not isinstance(age, bool) and 1 <= age <= 3650):
+                raise ValidationError({"file_keep_days": "1 bis 3650 Tage."})
+            changed["dateiversionen"] = {"behalten": keep, "tage": age} if keep is not None else "alles behalten"
+            team.file_keep_versions, team.file_keep_days = keep, age
         if "share_by_members" in d:
             if not isinstance(d["share_by_members"], bool):
                 raise ValidationError({"share_by_members": "true oder false."})
@@ -520,9 +531,7 @@ def purge(node):
         x = todo.pop()
         ids.append(x.pk)
         todo.extend(x.children.all())
-    for fv in FileVersion.objects.filter(node_id__in=ids):
-        fv.file.delete(save=False)
-    node.delete()
+    node.delete()  # the stored files go with their last FileVersion (post_delete in models.py; shared files stay while others use them)
 
 
 @api_view(["DELETE"])
