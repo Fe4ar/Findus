@@ -156,7 +156,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 /* ---------- App layout ---------- */
 .layout {
   display: grid;
-  grid-template-columns: 290px 1fr;
+  grid-template-columns: var(--side-w, 290px) 1fr;
   grid-template-rows: var(--topbar-h) 1fr;
   height: 100vh;
 }
@@ -1008,3 +1008,21 @@ button.link { background: none; border: 0; padding: 0; color: var(--accent); tex
 .share-found { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
 .share-found li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-1) var(--space-3); }
 .share-sub { margin: var(--space-3) 0 0; font-size: 0.85rem; color: var(--muted); }
+
+/* v0.8.4: the left sidebar can be dragged wider or narrower (double click = default width) */
+.side-handle { grid-column: 1; grid-row: 2; justify-self: end; width: 9px; margin-right: -4px; z-index: 5; cursor: col-resize; touch-action: none; background: transparent; border: 0; padding: 0; }
+.side-handle::after { content: ""; display: block; width: 2px; height: 100%; margin: 0 auto; background: transparent; transition: background 0.15s; }
+.side-handle:hover::after, .side-handle:focus-visible::after, .side-handle.dragging::after { background: var(--accent); }
+body.side-dragging { cursor: col-resize; user-select: none; }
+@media (max-width: 760px) { .side-handle { display: none; } }
+
+/* v0.8.4: an opened embedded document (Office, PDF, image) gets the whole content width and a normal height, like the file view;
+   the page's text column and the properties box give way while it is open. */
+.node:has(.doc-embed.open) .node-grid { grid-template-columns: minmax(0, 1fr); }
+.node:has(.doc-embed.open) .prose { max-width: none; }
+.node:has(.doc-embed.open) .meta { max-width: 36rem; }
+.doc-embed.open { width: 100%; }
+.doc-embed.open .oo-frame, .doc-embed.open iframe.pdf { height: max(30rem, calc(100vh - 16rem)); }
+.doc-embed.open iframe.pdf { display: block; width: 100%; border: 0; border-radius: 0; }
+.doc-embed.open .image-preview { display: block; margin: var(--space-3) auto; max-height: calc(100vh - 16rem); object-fit: contain; border: 0; }
+@media (max-width: 760px) { .doc-embed.open .oo-frame, .doc-embed.open iframe.pdf { height: max(24rem, calc(100vh - 12rem)); } }

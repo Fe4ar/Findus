@@ -446,8 +446,8 @@ function Trash() {
 
 // --- Protokoll ---------------------------------------------------------------------------------------------
 
-interface AuditData { total: number; page: number; size: number; teams: { id: number; name: string }[]; actions: string[]; items: { id: number; at: string; username: string; action: string; node: string | null; title: string; team: string | null; details: object; ip: string | null }[] }
-const ACTION_LABEL: Record<string, string> = { create: "angelegt", update: "geändert", delete: "gelöscht", move: "verschoben", restore: "wiederhergestellt", publish: "Status", permissions: "Rechte", login: "Anmeldung", login_failed: "Anmeldung fehlgeschlagen", logout: "Abmeldung", team: "Team", user: "Benutzer" };
+interface AuditData { can_clear?: boolean; total: number; page: number; size: number; teams: { id: number; name: string }[]; actions: string[]; items: { id: number; at: string; username: string; action: string; node: string | null; title: string; team: string | null; details: object; ip: string | null }[] }
+const ACTION_LABEL: Record<string, string> = { create: "angelegt", update: "geändert", delete: "gelöscht", move: "verschoben", restore: "wiederhergestellt", publish: "Status", permissions: "Rechte", login: "Anmeldung", login_failed: "Anmeldung fehlgeschlagen", logout: "Abmeldung", team: "Team", user: "Benutzer", audit: "Protokoll" };
 
 function Audit() {
   const [f, setF] = useState({ team: "", user: "", action: "", from: "", to: "", q: "" });
@@ -456,6 +456,13 @@ function Audit() {
   const query = useMemo(() => new URLSearchParams({ ...Object.fromEntries(Object.entries(f).filter(([, v]) => v)), page: String(page) }).toString(), [f, page]);
   useEffect(() => { api<AuditData>(`/api/audit?${query}`).then(setData).catch(err); }, [query]);
   const set = (k: keyof typeof f, v: string) => { setF({ ...f, [k]: v }); setPage(1); };
+  const clear = async () => {
+    if (!(await confirmDialog({ title: "Gesamtes Protokoll löschen?", message: "Alle Protokolleinträge werden unwiderruflich gelöscht. Nur ein Eintrag „Protokoll gelöscht“ bleibt übrig.", ok: "Weiter", danger: true }))) return;
+    const typed = await ask({ title: "Zur Bestätigung tippen", label: "Bitte PROTOKOLL LÖSCHEN eingeben", ok: "Endgültig löschen", validate: (v) => (v.trim() === "PROTOKOLL LÖSCHEN" ? null : "Der Text stimmt nicht.") });
+    if (typed === null) return;
+    api<{ deleted: number }>("/api/audit", { method: "DELETE", body: { confirm: typed.trim() } })
+      .then((r) => { notify(`${r.deleted} Einträge gelöscht.`, false); setPage(1); setF({ team: "", user: "", action: "", from: "", to: "", q: "" }); api<AuditData>("/api/audit?page=1").then(setData).catch(err); }).catch(err);
+  };
   return (
     <>
       <div className="admin-toolbar filters">
@@ -478,7 +485,7 @@ function Audit() {
             </table>
           </div>
           <div className="admin-toolbar">
-            <span className="muted">{data.total} Einträge</span><span className="spacer" />
+            <span className="muted">{data.total} Einträge</span>{data.can_clear && <button className="danger" onClick={clear}>Gesamtes Protokoll löschen</button>}<span className="spacer" />
             <button disabled={page <= 1} onClick={() => setPage(page - 1)}>← Zurück</button>
             <span>Seite {page} von {Math.max(1, Math.ceil(data.total / data.size))}</span>
             <button disabled={page * data.size >= data.total} onClick={() => setPage(page + 1)}>Weiter →</button>
@@ -540,7 +547,11 @@ function System() {
 
 interface StatsData {
   teams: { id: number; name: string }[];
+  users: { id: number; name: string }[];
   counts: { pages: number; faqs: number; files: number; members: number };
+  top: { id: string; title: string; views: number }[];
+  edited: { id: string; title: string; at: string; user: string }[];
+  created: { id: string; title: string; at: string; user: string }[];
   recent: { id: string; title: string; at: string; user: string }[];
   top7: { id: string; title: string; views: number }[];
   top30: { id: string; title: string; views: number }[];
@@ -548,8 +559,12 @@ interface StatsData {
 
 function Stats() {
   const [team, setTeam] = useState("");
+  const [user, setUser] = useState("");
   const [d, setD] = useState<StatsData | null>(null);
-  useEffect(() => { api<StatsData>(`/api/stats${team ? `?team=${team}` : ""}`).then(setD).catch(err); }, [team]);
+  useEffect(() => {
+    const q = new URLSearchParams({ ...(team ? { team } : {}), ...(user ? { user } : {}) }).toString();
+    api<StatsData>(`/api/stats${q ? `?${q}` : ""}`).then(setD).catch((e) => { if (user) setUser(""); err(e); });
+  }, [team, user]);
   if (!d) return <p className="muted">Lade …</p>;
   const list = (title: string, rows: { id: string; title: string; views?: number; at?: string; user?: string }[]) => (
     <article className="card">
@@ -560,13 +575,19 @@ function Stats() {
   return (
     <>
       <div className="admin-toolbar">
-        <label>Team<select value={team} onChange={(e) => setTeam(e.target.value)}><option value="">{d.teams.length > 1 || true ? "Alle" : ""}</option>{d.teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
+        <label>Team<select value={team} onChange={(e) => { setTeam(e.target.value); setUser(""); }}><option value="">Alle</option>{d.teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
+        <label>Benutzer<select value={user} onChange={(e) => setUser(e.target.value)}><option value="">Alle</option>{d.users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}</select></label>
       </div>
       <div className="stat-grid">
         <div className="stat"><strong>{d.counts.pages}</strong><span>Seiten</span></div>
         <div className="stat"><strong>{d.counts.faqs}</strong><span>FAQ-Beiträge</span></div>
         <div className="stat"><strong>{d.counts.files}</strong><span>Dateien</span></div>
         <div className="stat"><strong>{d.counts.members}</strong><span>Mitglieder</span></div>
+      </div>
+      <div className="tile-row">
+        {list(user ? "Meist angesehen (90 Tage)" : "Meist angesehen", d.top)}
+        {list("Zuletzt bearbeitet", d.edited)}
+        {list("Zuletzt erstellt", d.created)}
       </div>
       <div className="tile-row">
         {list("Zuletzt aufgerufen", d.recent)}

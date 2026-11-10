@@ -24,6 +24,8 @@ from .views import is_uuid, user_name
 User = get_user_model()
 DEFAULT_TRASH_DAYS = 40
 
+AUDIT_CLEAR_PHRASE = "PROTOKOLL LÖSCHEN"
+
 
 def need_login(request):
     if not request.user.is_authenticated:
@@ -515,8 +517,10 @@ def trash_purge(request, node_id):
 
 # --- audit log ------------------------------------------------------------------------------------------------
 
-@api_view(["GET"])
+@api_view(["GET", "DELETE"])
 def audit_log(request):
+    if request.method == "DELETE":
+        return clear_audit(request)
     admin, ids = _scope(request.user)
     if not admin and not ids:
         raise PermissionDenied()
@@ -540,12 +544,24 @@ def audit_log(request):
     size = 50
     total = q.count()
     rows = q[(page - 1) * size: page * size]
-    return Response({"total": total, "page": page, "size": size,
+    return Response({"total": total, "page": page, "size": size, "can_clear": admin,
                      "teams": [{"id": t.id, "name": t.name} for t in (Team.objects.all() if admin else led(request.user))],
                      "actions": [a for a, _ in AuditLog.ACTIONS],
                      "items": [{"id": a.id, "at": a.created_at, "username": a.username, "action": a.action, "node": a.node_id,
                                 "title": a.node_title, "team": a.team.name if a.team else None, "details": a.details, "ip": a.ip}
                                for a in rows]})
+
+
+def clear_audit(request):
+    """Admin: delete the whole log; only one entry remains, saying who did it. Needs {"confirm": "PROTOKOLL LÖSCHEN"} in the body."""
+    need_admin(request)
+    if request.data.get("confirm") != AUDIT_CLEAR_PHRASE:
+        raise ValidationError({"detail": f"Zur Bestätigung „{AUDIT_CLEAR_PHRASE}“ senden."})
+    with transaction.atomic():
+        count, _ = AuditLog.objects.all().delete()
+        AuditLog.objects.create(user=request.user, username=request.user.get_username(), action="audit", node_title="Gesamtes Protokoll gelöscht",
+                                details={"entries": count}, ip=audit.client_ip(request))
+    return Response({"deleted": count})
 
 
 # --- system ---------------------------------------------------------------------------------------------------

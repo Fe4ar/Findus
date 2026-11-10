@@ -69,7 +69,7 @@ def _in_scope(node, area_ids):
 
 @api_view(["GET"])
 def stats(request):
-    """Admin: everything, optionally ?team=<id>; team leaders: their teams' areas only."""
+    """Admin: everything, optionally ?team=<id>; team leaders: their teams' areas and members only (private areas never); ?user=<id> filters by person."""
     admin, ids = _scope(request.user)
     want = request.query_params.get("team")
     teams = Team.objects.all() if admin else Team.objects.filter(pk__in=ids)
@@ -78,30 +78,56 @@ def stats(request):
         if not teams:
             raise NotFound()
     area_ids = None if admin and not want else {t.area_id for t in teams if t.area_id}
-    nodes = Node.objects.filter(deleted_at=None, space=Node.WIKI).select_related("parent")
+    nodes = Node.objects.filter(deleted_at=None, space=Node.WIKI).select_related("parent", "created_by", "updated_by")
     mine = [n for n in nodes if _in_scope(n, area_ids) and not _root(n).owner_id]
     now = timezone.now()
+    # Users the leader may look at: members of the (filtered) teams; admins all active users.
+    member_ids = set(TeamMember.objects.filter(team__in=teams).values_list("user_id", flat=True))
+    people = User.objects.filter(is_active=True) if admin and not want else User.objects.filter(pk__in=member_ids)
+    who = None
+    if request.query_params.get("user"):
+        who = people.filter(pk=request.query_params["user"]).first() if request.query_params["user"].isdigit() else None
+        if who is None:
+            raise NotFound()
 
     def top(days):
-        rows = (PageView.objects.filter(at__gte=now - timedelta(days=days), node__deleted_at=None)
-                .values("node").annotate(n=Count("id")).order_by("-n")[:60])
+        rows = PageView.objects.filter(at__gte=now - timedelta(days=days), node__deleted_at=None)
+        if who:
+            rows = rows.filter(user=who)
+        rows = rows.values("node").annotate(n=Count("id")).order_by("-n")[:60]
         by = {n.pk: n for n in mine}
         return [{"id": r["node"], "title": by[r["node"]].title, "views": r["n"]} for r in rows if r["node"] in by][:8]
 
     pages = [n for n in mine if n.kind == Node.PAGE]
     by_id = {n.pk: n for n in pages}
     recent = []
-    for v in PageView.objects.filter(node__in=by_id).select_related("user").order_by("-at")[:200]:
+    views = PageView.objects.filter(node__in=by_id).select_related("user").order_by("-at")
+    for v in (views.filter(user=who) if who else views)[:200]:
         if all(r["id"] != v.node_id for r in recent):
             recent.append({"id": v.node_id, "title": by_id[v.node_id].title, "at": v.at,
                            "user": (v.user.get_username() if v.user else "anonym")})
         if len(recent) == 8:
             break
-    members = TeamMember.objects.filter(team__in=teams).values("user").distinct().count() if (not admin or want) else User.objects.count()
+    # Most viewed: all-time counters; with a user filter that person's views (raw rows, 90 days).
+    if who:
+        rows = views.filter(user=who).values("node").annotate(n=Count("id")).order_by("-n")[:5]
+        top5 = [{"id": r["node"], "title": by_id[r["node"]].title, "views": r["n"]} for r in rows]
+    else:
+        rows = PageCounter.objects.filter(node__in=by_id, total__gt=0).order_by("-total")[:5]
+        top5 = [{"id": c.node_id, "title": by_id[c.node_id].title, "views": c.total} for c in rows]
+
+    def latest(field, by_user, n=5):
+        picked = [p for p in pages if not who or getattr(p, by_user + "_id") == who.pk]
+        return [{"id": p.id, "title": p.title, "at": getattr(p, field), "user": (getattr(p, by_user).get_username() if getattr(p, by_user) else "–")}
+                for p in sorted(picked, key=lambda p: getattr(p, field), reverse=True)[:n]]
+
+    members = len(member_ids) if (not admin or want) else User.objects.count()
     return Response({
         "teams": [{"id": t.id, "name": t.name} for t in (Team.objects.all() if admin else teams)],
+        "users": [{"id": u.id, "name": u.get_full_name() or u.get_username()} for u in people.order_by("username")],
         "counts": {"pages": len(pages), "faqs": sum(1 for n in pages if is_public(n)),
                    "files": sum(1 for n in mine if n.kind == Node.FILE), "members": members},
+        "top": top5, "edited": latest("updated_at", "updated_by"), "created": latest("created_at", "created_by"),
         "recent": recent, "top7": top(7), "top30": top(30)})
 
 

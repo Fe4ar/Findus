@@ -2262,3 +2262,49 @@ def test_private_share_validation_and_people_search(admin, db):
     assert [p["username"] for p in ac.get("/api/people", {"q": "cy"}).json()] == ["cy"]
     assert "anna" not in [p["username"] for p in ac.get("/api/people", {"q": "an"}).json()] and "ben" not in [p["username"] for p in ac.get("/api/people", {"q": "ben"}).json()]
     assert APIClient().get("/api/people", {"q": "cy"}).status_code in (401, 403)
+
+
+def test_stats_scope_user_filter_and_lists(admin, db):
+    """Leaders see only their teams' pages and people; members get 403; private areas never show up; ?user= filters."""
+    lead, lc = _member("lea")
+    other, oc = _member("otto")
+    plain, pc = _member("pia")
+    team = _team(admin, "Alpha", lead, [(plain, True)])
+    team2 = _team(admin, "Beta", other)
+    area, area2 = team["area"], team2["area"]
+    mine = create(lc, "page", "Eigene Seite", str(area))
+    foreign = create(oc, "page", "Fremde Seite", str(area2))
+    pc.post(f"/api/nodes/{mine}/view")
+    lc.post(f"/api/nodes/{mine}/view")
+    private_page = create(lc, "page", "Geheim", lc.get("/api/auth/me").json()["nav"]["private"])
+    st = lc.get("/api/stats").json()
+    titles = {r["title"] for k in ("top", "edited", "created", "recent") for r in st[k]}
+    assert "Eigene Seite" in titles and "Fremde Seite" not in titles and "Geheim" not in titles
+    assert [t["name"] for t in st["teams"]] == ["Alpha"] and {u["name"] for u in st["users"]} == {"lea", "pia"}
+    assert st["top"][0] == {"id": mine, "title": "Eigene Seite", "views": 2}
+    assert st["created"][0]["user"] == "lea" and st["edited"][0]["user"] == "lea"
+    only = lc.get(f"/api/stats?user={plain.id}").json()
+    assert only["top"] == [{"id": mine, "title": "Eigene Seite", "views": 1}] and only["created"] == []
+    assert lc.get(f"/api/stats?user={other.id}").status_code == 404  # not in the leader's teams
+    assert lc.get(f"/api/stats?team={team2['id']}").status_code == 404
+    assert pc.get("/api/stats").status_code == 403 and oc.get("/api/stats").status_code == 200
+    a = admin.get("/api/stats").json()
+    assert {"Eigene Seite", "Fremde Seite"} <= {r["title"] for r in a["created"]} and "Geheim" not in {r["title"] for r in a["created"]}
+    assert {u["name"] for u in a["users"]} >= {"lea", "otto", "pia", "chef"}
+
+
+def test_clear_whole_audit_log(admin, db):
+    from .models import AuditLog
+    lead, lc = _member("lea")
+    _team(admin, "Alpha", lead)
+    assert AuditLog.objects.count() > 1
+    assert lc.delete("/api/audit", {"confirm": "PROTOKOLL LÖSCHEN"}, format="json").status_code == 403
+    assert admin.delete("/api/audit").status_code == 400
+    assert admin.delete("/api/audit", {"confirm": "ja"}, format="json").status_code == 400
+    n = AuditLog.objects.count()
+    r = admin.delete("/api/audit", {"confirm": "PROTOKOLL LÖSCHEN"}, format="json")
+    assert r.status_code == 200 and r.json()["deleted"] == n
+    rows = list(AuditLog.objects.all())
+    assert len(rows) == 1 and rows[0].action == "audit" and rows[0].username == "chef" and rows[0].details == {"entries": n}
+    assert APIClient().delete("/api/audit", {"confirm": "PROTOKOLL LÖSCHEN"}, format="json").status_code in (401, 403)
+    assert admin.get("/api/audit").json()["total"] == 1

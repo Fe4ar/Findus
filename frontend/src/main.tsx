@@ -1,5 +1,5 @@
 import { extensions, homeExtension } from "./extensions";
-import { StrictMode, useCallback, useEffect, useRef, useState } from "react";
+import { CSSProperties, PointerEvent as ReactPointerEvent, StrictMode, useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api, ApiError, Me, NodeDetail, Theme } from "./api";
 import { Tree } from "./Tree";
@@ -98,6 +98,24 @@ function Login({ onLogin }: { onLogin: (me: Me) => void }) {
   );
 }
 
+const SIDE_MIN = 200, SIDE_MAX = 560, SIDE_DEFAULT = 290;
+const clampSide = (w: number) => Math.min(SIDE_MAX, Math.max(SIDE_MIN, Math.round(w)));
+
+/** Drag edge between the sidebar and the content; the width is remembered per browser. */
+function SideHandle({ width, onChange }: { width: number; onChange: (w: number) => void }) {
+  const start = (e: ReactPointerEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    const el = e.currentTarget, x0 = e.clientX, w0 = width;
+    el.setPointerCapture(e.pointerId); el.classList.add("dragging"); document.body.classList.add("side-dragging");
+    const move = (ev: PointerEvent) => onChange(clampSide(w0 + ev.clientX - x0));
+    const end = () => { el.classList.remove("dragging"); document.body.classList.remove("side-dragging"); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", end); el.removeEventListener("pointercancel", end); };
+    el.addEventListener("pointermove", move); el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
+  };
+  return <button type="button" className="side-handle" role="separator" aria-orientation="vertical" aria-label="Breite der Seitenleiste ändern" aria-valuenow={width} aria-valuemin={SIDE_MIN} aria-valuemax={SIDE_MAX}
+    onPointerDown={start} onDoubleClick={() => onChange(SIDE_DEFAULT)}
+    onKeyDown={(e) => { if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); onChange(clampSide(width + (e.key === "ArrowRight" ? 20 : -20))); } }} />;
+}
+
 function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [state, setState] = useState<TabState>({ tabs: [{ id: "start", path: currentPath() === "/" ? "/wiki" : currentPath() }], active: "start", split: null });
@@ -111,6 +129,8 @@ function App() {
   // Bumped after any change so the tree reloads the affected branches.
   const [treeVersion, setTreeVersion] = useState(0);
   // index.html applies the stored theme before the first paint; the account setting wins once /me is loaded.
+  const [sideW, setSideW] = useState(() => { try { const v = Number(localStorage.getItem("findus-side-width")); return v ? clampSide(v) : SIDE_DEFAULT; } catch { return SIDE_DEFAULT; } });
+  const changeSide = (w: number) => { setSideW(w); try { w === SIDE_DEFAULT ? localStorage.removeItem("findus-side-width") : localStorage.setItem("findus-side-width", String(w)); } catch { /* private mode: not remembered */ } };
   const [theme, setTheme] = useState<Theme>(() => {
     try {
       return (localStorage.getItem("theme") as Theme) ?? "auto";
@@ -304,7 +324,7 @@ function App() {
   const shown = (t: DocTab) => t.id === state.active || t.id === split;
 
   return (
-    <div className={`${section === "overview" ? "layout full" : "layout"}${anon || section === "overview" ? "" : " with-tabs"}`}>
+    <div className={`${section === "overview" ? "layout full" : "layout"}${anon || section === "overview" ? "" : " with-tabs"}`} style={{ "--side-w": `${sideW}px` } as CSSProperties}>
       <header className="topbar">
         <a href="/" className="brand" onClick={(e) => { e.preventDefault(); go("/"); }}><img src="/findus.svg" alt="" className="logo" />Findus</a>
         <TabNav tabs={tabs} section={section} go={go} />
@@ -333,6 +353,7 @@ function App() {
       {section === "admin" && (
         <nav className="sidebar" aria-label="Verwaltung"><AdminNav me={me} path={activePath} go={go} /></nav>
       )}
+      {(section === "wiki" || section === "faq" || section === "private" || team || section === "map" || section === "admin") && <SideHandle width={sideW} onChange={changeSide} />}
       <div className="workspace">
         {!anon && section !== "overview" && (
           <TabBar state={{ ...state, split }} dirty={dirty} version={treeVersion} onActivate={activate} onClose={closeTab}

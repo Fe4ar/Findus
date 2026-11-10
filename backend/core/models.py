@@ -140,7 +140,7 @@ class NodePermission(models.Model):
 
 class AuditLog(models.Model):
     ACTIONS = [(a, a) for a in ("create", "update", "delete", "move", "restore", "publish", "permissions",
-                                "login", "login_failed", "login_locked", "logout", "team", "user")]
+                                "login", "login_failed", "login_locked", "logout", "team", "user", "audit")]
 
     user = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     # Kept as text so entries survive user deletion and record the name tried in failed logins.

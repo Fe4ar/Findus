@@ -2,6 +2,16 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.8.4] - 2026-11-10
+
+### Added
+- Statistics for team leaders: the Statistik view shows only the areas and people of the teams a leader leads (administrators see everything; members do not see the view at all, the API answers 403). New: filter by user, the five most viewed pages, the five last edited and the five last created pages. Private areas never appear
+- Administrators can delete the whole audit log (Protokoll, "Gesamtes Protokoll löschen"): two confirmations, the second one needs the text typed in; one entry "Protokoll gelöscht" with the administrator and the number of removed entries stays. Migration 0029 only extends the list of action names
+- The left sidebar can be made wider or narrower by dragging its edge (200 to 560 px); the width is remembered per browser, a double click or the arrow keys on the edge reset or fine-tune it. Not shown on small screens
+
+### Fixed
+- An opened embedded document (Office, PDF or image) now uses the full width of the page and a normal height instead of the narrow text column; the properties box moves below while it is open
+
 ## [0.8.3] - 2026-11-10
 
 ### Added
