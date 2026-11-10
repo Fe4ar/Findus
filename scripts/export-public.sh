@@ -41,8 +41,8 @@ log=$out/CHANGELOG.md
 
 "$src/scripts/check-public.sh" "$out" || die "public check failed, nothing committed (fix and run again after: git -C $out checkout -- . && git -C $out clean -fd)"
 git -C "$out" add -A
-git -C "$out" -c user.name="${PUBLIC_AUTHOR_NAME:-Findus}" -c user.email="${PUBLIC_AUTHOR_EMAIL:-findus@users.noreply.github.com}" \
+git -C "$out" -c user.name="${PUBLIC_AUTHOR_NAME:-Findus}" -c user.email="${PUBLIC_AUTHOR_EMAIL:-199075407+Fe4ar@users.noreply.github.com}" \
   commit -q -m "Findus $ver"
-git -C "$out" -c user.name="${PUBLIC_AUTHOR_NAME:-Findus}" -c user.email="${PUBLIC_AUTHOR_EMAIL:-findus@users.noreply.github.com}" \
+git -C "$out" -c user.name="${PUBLIC_AUTHOR_NAME:-Findus}" -c user.email="${PUBLIC_AUTHOR_EMAIL:-199075407+Fe4ar@users.noreply.github.com}" \
   tag -a "v$ver" -m "Findus $ver"
 echo "v$ver committed and tagged in $out (not pushed). Push: git -C $out push origin main v$ver"
