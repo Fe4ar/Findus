@@ -64,7 +64,9 @@ function sectionOf(path: string, nodeTab: Tab | undefined): Tab {
 // Paths a Ctrl/middle click may open as an in-app tab; everything else (downloads, admin, editors) stays native.
 const TAB_PATH = /^\/(?:$|n\/|wiki|netzwerk|karte|verwaltung|aufgaben|anwender)/;
 
+const NOTICE_KEY = "findus-notice";
 function Login({ onLogin }: { onLogin: (me: Me) => void }) {
+  const [notice] = useState(() => { try { const n = sessionStorage.getItem(NOTICE_KEY); sessionStorage.removeItem(NOTICE_KEY); return n ?? ""; } catch { return ""; } });
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -82,6 +84,7 @@ function Login({ onLogin }: { onLogin: (me: Me) => void }) {
         }}
       >
         <h1><img src="/findus.svg" alt="" />Findus</h1>
+        {notice && <p className="notice" role="status">{notice}</p>}
         <label>
           Benutzername
           <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus autoComplete="username" />
@@ -147,6 +150,48 @@ function App() {
     if (me?.authenticated) api("/api/auth/settings", { method: "PUT", body: { theme: t } }).catch(() => {});
   };
   const anon = !!me && !me.authenticated;
+  // Automatic sign-out after inactivity: the server expires the session on its own (rolling, IdleLogoutMiddleware); this timer counts real
+  // activity in the browser (all tabs share it) and signs out cleanly, and a refused request triggers a check whether the session is gone.
+  const idleMin = me?.authenticated ? me.idle_logout_minutes ?? 0 : 0;
+  const expire = useCallback(() => {
+    try { sessionStorage.setItem(NOTICE_KEY, "Automatisch abgemeldet wegen Inaktivität."); } catch { /* shown without the note */ }
+    api("/api/auth/logout", { method: "POST" }).catch(() => undefined).finally(() => setMe({ authenticated: false }));
+  }, []);
+  useEffect(() => {
+    if (!me?.authenticated || !idleMin) return;
+    const KEY = "findus-last-active";
+    const fallback = { at: Date.now() };
+    const mark = () => { fallback.at = Date.now(); try { localStorage.setItem(KEY, String(fallback.at)); } catch { /* own value only */ } };
+    mark();
+    let throttle = 0;
+    const onActivity = () => { const t = Date.now(); if (t - throttle > 3000) { throttle = t; mark(); } };
+    const events = ["pointerdown", "keydown", "wheel", "touchstart", "mousemove"] as const;
+    events.forEach((e) => addEventListener(e, onActivity, { passive: true }));
+    // While the user is active without talking to the server (reading, typing), a light request keeps the server session alive.
+    const pingEvery = Math.max(10_000, Math.min(5 * 60_000, (idleMin * 60_000) / 3));
+    let pinged = Date.now();
+    const check = () => {
+      let at = fallback.at;
+      try { at = Number(localStorage.getItem(KEY)) || at; } catch { /* own value */ }
+      const now = Date.now();
+      if (now - at >= idleMin * 60_000) return expire();
+      if (at > pinged && now - pinged >= pingEvery) { pinged = now; api("/api/auth/me").catch(() => undefined); }
+    };
+    const timer = setInterval(check, 5000);
+    document.addEventListener("visibilitychange", check);
+    return () => { events.forEach((e) => removeEventListener(e, onActivity)); clearInterval(timer); document.removeEventListener("visibilitychange", check); };
+  }, [me?.authenticated, idleMin, expire]);
+  useEffect(() => {
+    let busy = false;
+    const onCheck = () => {
+      if (busy || !me?.authenticated) return;
+      busy = true;
+      api<Me>("/api/auth/me").then((m) => { if (!m.authenticated) { try { sessionStorage.setItem(NOTICE_KEY, "Automatisch abgemeldet wegen Inaktivität."); } catch { /* ignore */ } setMe({ authenticated: false }); } })
+        .catch(() => undefined).finally(() => { busy = false; });
+    };
+    addEventListener("findus-auth-check", onCheck);
+    return () => removeEventListener("findus-auth-check", onCheck);
+  }, [me?.authenticated]);
   // Old shared FAQ links (/n/<id>): a published public page opens in the help portal, anything else asks for the login.
   const [linkChecked, setLinkChecked] = useState(false);
   useEffect(() => {

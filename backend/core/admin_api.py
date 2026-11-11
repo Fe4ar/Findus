@@ -104,6 +104,20 @@ def retention(request):
     return Response({"user_retention_days": IntegrationSettings.retention_days()})
 
 
+@api_view(["GET", "PUT"])
+def idle_logout(request):
+    """Admin: automatic sign-out after this many minutes of inactivity (0 = off)."""
+    need_admin(request)
+    if request.method == "PUT":
+        minutes = request.data.get("minutes")
+        if isinstance(minutes, bool) or not isinstance(minutes, int) or not 0 <= minutes <= 43200:
+            raise ValidationError({"minutes": "0 (aus) bis 43200 Minuten (30 Tage)."})
+        old = IntegrationSettings.idle_minutes()
+        IntegrationSettings.objects.update_or_create(pk=1, defaults={"idle_logout_minutes": minutes})
+        audit.log(request, "user", None, what="Automatische Abmeldung geändert", minuten=[old, minutes])
+    return Response({"minutes": IntegrationSettings.idle_minutes()})
+
+
 @api_view(["GET", "POST"])
 def users(request):
     need_admin(request)

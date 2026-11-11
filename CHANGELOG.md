@@ -2,6 +2,11 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.8.10] - 2026-11-11
+
+### Added
+- Automatic sign-out after inactivity: the administration sets the idle time in hours (System, "Anmeldung"; default 4 hours, 0 = never sign out automatically). Only inactivity counts: every request or activity in the browser keeps the session alive, after the idle time the session ends and the login shows "Automatisch abgemeldet wegen Inaktivität". Migration 0031 adds the setting
+
 ## [0.8.9] - 2026-11-11
 
 ### Added

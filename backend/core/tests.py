@@ -2465,3 +2465,30 @@ def test_internal_page_links_survive_sanitizing(admin, db):
     assert admin.put(f"/api/pages/{page}/content", {"html": html, "base_version": 1, "content": {"type": "doc", "content": []}}, format="json").status_code == 200
     stored = admin.get(f"/api/nodes/{page}").json()["content_html"]
     assert f'href="/n/{target}"' in stored and 'href="https://example.org/x"' in stored and "javascript:" not in stored
+
+
+def test_idle_logout_rolling_session_and_setting(admin, db):
+    from datetime import timedelta
+    from django.contrib.sessions.models import Session
+    from django.utils import timezone
+    u, c = _member("ina")
+    assert c.get("/api/auth/me").json()["idle_logout_minutes"] == 240  # default: 4 hours
+    key = c.session.session_key
+    assert abs(Session.objects.get(session_key=key).expire_date - timezone.now() - timedelta(hours=4)) < timedelta(minutes=2)
+    # Admin only; range checked; the setting is applied to the next request of the user.
+    assert c.put("/api/admin/idle-logout", {"minutes": 1}, format="json").status_code == 403
+    assert admin.put("/api/admin/idle-logout", {"minutes": -1}, format="json").status_code == 400 and admin.put("/api/admin/idle-logout", {"minutes": "x"}, format="json").status_code == 400
+    assert admin.put("/api/admin/idle-logout", {"minutes": 1}, format="json").json()["minutes"] == 1
+    assert c.get("/api/auth/me").json()["idle_logout_minutes"] == 1
+    assert abs(Session.objects.get(session_key=key).expire_date - timezone.now() - timedelta(minutes=1)) < timedelta(seconds=30)
+    # Activity rolls the expiry forward; no activity: the session is gone.
+    Session.objects.filter(session_key=key).update(expire_date=timezone.now() + timedelta(seconds=5))
+    assert c.get("/api/auth/me").json()["authenticated"] is True
+    assert Session.objects.get(session_key=key).expire_date > timezone.now() + timedelta(seconds=40)
+    Session.objects.filter(session_key=key).update(expire_date=timezone.now() - timedelta(seconds=1))
+    assert c.get("/api/auth/me").json()["authenticated"] is False and c.get("/api/trash").status_code in (401, 403)
+    # 0 = off: the normal cookie age applies.
+    assert admin.put("/api/admin/idle-logout", {"minutes": 0}, format="json").json()["minutes"] == 0
+    u2, c2 = _member("ivo"); c2.get("/api/auth/me")
+    from django.conf import settings
+    assert Session.objects.get(session_key=c2.session.session_key).expire_date > timezone.now() + timedelta(seconds=settings.SESSION_COOKIE_AGE - 120)

@@ -334,6 +334,13 @@ class IntegrationSettings(models.Model):
     todoist_allowed = models.BooleanField(default=True)
     # How long a deleted user and their personal area are kept before they are removed for good.
     user_retention_days = models.PositiveIntegerField(default=30)
+    # Automatic sign-out after this many minutes without a request (rolling session); 0 = off. Default 4 hours.
+    idle_logout_minutes = models.PositiveIntegerField(default=240)
+
+    @classmethod
+    def idle_minutes(cls):
+        row = cls.objects.filter(pk=1).first()
+        return row.idle_logout_minutes if row else 240
 
     @classmethod
     def retention_days(cls):

@@ -64,6 +64,7 @@ export interface Me {
   teams?: { id: number; name: string; leader: boolean; can_write: boolean }[];
   theme?: Theme;
   must_change_password?: boolean; // the start admin has to set a new password first
+  idle_logout_minutes?: number; // automatic sign-out after this long without activity, 0 = off
 }
 
 export type Theme = "auto" | "light" | "dark";
@@ -94,6 +95,8 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
   });
   if (res.status === 204) return undefined as T;
   const data = await res.json().catch(() => ({}));
+  // A refused request may mean the session ran out (inactivity): the app checks /me and returns to the login.
+  if ((res.status === 401 || res.status === 403) && !path.startsWith("/api/auth/")) window.dispatchEvent(new Event("findus-auth-check"));
   if (!res.ok) throw new ApiError(res.status, data);
   return data as T;
 }

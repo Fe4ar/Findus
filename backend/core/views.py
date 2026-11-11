@@ -200,7 +200,7 @@ def me_data(user):
         return {"authenticated": False}
     return {"authenticated": True, "username": user.get_username(), "name": user_name(user),
             "is_superuser": user.is_superuser, "is_admin": is_admin(user), "can_create_area": can(user, WRITE) and "wiki" in enabled(user), "can_overview": can(user, READ),
-            "can_download": can_download(user), "collabora": bool(settings.COLLABORA_UPSTREAM), "features": sorted(enabled(user)), "nav": nav_data(user), "todoist": IntegrationSettings.allowed(), "teams": [{"id": m.team_id, "name": m.team.name, "leader": m.is_leader, "can_write": m.is_leader or m.can_write}
+            "can_download": can_download(user), "collabora": bool(settings.COLLABORA_UPSTREAM), "features": sorted(enabled(user)), "nav": nav_data(user), "todoist": IntegrationSettings.allowed(), "idle_logout_minutes": IntegrationSettings.idle_minutes(), "teams": [{"id": m.team_id, "name": m.team.name, "leader": m.is_leader, "can_write": m.is_leader or m.can_write}
                       for m in user.team_memberships.select_related("team")],
             "theme": getattr(getattr(user, "findus_settings", None), "theme", "auto"),
             "must_change_password": bool(getattr(getattr(user, "findus_settings", None), "must_change_password", False))}

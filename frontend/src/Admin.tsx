@@ -535,6 +535,8 @@ function System() {
   const [d, setD] = useState<any>(null);
   const [integ, setInteg] = useState<{ todoist_allowed: boolean; todoist_links: number } | null>(null);
   const [keep, setKeep] = useState<number | null>(null);
+  const [idle, setIdle] = useState<number | null>(null); // minutes, 0 = off; edited in hours
+  useEffect(() => { api<{ minutes: number }>("/api/admin/idle-logout").then((r) => setIdle(r.minutes)).catch(err); }, []);
   useEffect(() => { api<{ user_retention_days: number }>("/api/admin/retention").then((r) => setKeep(r.user_retention_days)).catch(err); }, []);
   useEffect(() => { api("/api/admin/system").then(setD).catch(err); api<typeof integ>("/api/admin/integrations").then(setInteg).catch(err); }, []);
   if (!d) return <p className="muted">Lade …</p>;
@@ -557,6 +559,16 @@ function System() {
           <label className="check-row">
             <input type="checkbox" checked={integ.todoist_allowed} onChange={(e) => api<typeof integ>("/api/admin/integrations", { method: "PUT", body: { todoist_allowed: e.target.checked } }).then(setInteg).catch(err)} />
             <span><strong>Todoist-Integration erlauben</strong><span className="muted"> Benutzer können ihr Todoist-Konto verbinden (Team-Funktion „Aufgaben“ vorausgesetzt). {integ.todoist_links} verbunden. Ausgeschaltet ruht der Abgleich für alle.</span></span>
+          </label>
+        </fieldset>
+      )}
+      {idle !== null && (
+        <fieldset className="feature-list">
+          <legend>Anmeldung</legend>
+          <label className="check-row">
+            <input type="number" min={0} max={720} step={0.25} value={idle / 60} style={{ width: "6em" }} onChange={(e) => setIdle(Math.round(Number(e.target.value) * 60))}
+              onBlur={() => api<{ minutes: number }>("/api/admin/idle-logout", { method: "PUT", body: { minutes: idle } }).then((r) => { setIdle(r.minutes); notify("Gespeichert.", false); }).catch(err)} />
+            <span><strong>Automatische Abmeldung nach Inaktivität (Stunden)</strong><span className="muted"> Wer so lange nichts tut, wird abgemeldet und sieht danach die Anmeldung; wer aktiv ist, bleibt angemeldet. Standard 4 Stunden, <strong>0 = nie automatisch abmelden</strong>. Die Einstellung gilt für alle Benutzer.</span></span>
           </label>
         </fieldset>
       )}

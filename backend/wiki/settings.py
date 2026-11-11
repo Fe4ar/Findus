@@ -21,6 +21,7 @@ ALLOWED_HOSTS = [*WIKI_HOSTS, "web", "localhost"]
 CSRF_TRUSTED_ORIGINS = [f"https://{h}" for h in WIKI_HOSTS]
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SESSION_COOKIE_SECURE = not DEBUG
+SESSION_SAVE_EVERY_REQUEST = True  # rolling expiry (core.middleware.IdleLogoutMiddleware)
 CSRF_COOKIE_SECURE = not DEBUG
 
 INSTALLED_APPS = [
@@ -43,6 +44,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "core.middleware.MustChangePasswordMiddleware",
+    "core.middleware.IdleLogoutMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
