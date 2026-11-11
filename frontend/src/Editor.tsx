@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { EditorContent, useEditor, Editor as TipTap, Node } from "@tiptap/react";
 import { Icon, IconName } from "./Icons";
 import StarterKit from "@tiptap/starter-kit";
@@ -11,6 +11,7 @@ import TableCell from "@tiptap/extension-table-cell";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { common, createLowlight } from "lowlight";
 import { ask } from "./Dialog";
+import { LinkPicker } from "./LinkPicker";
 
 const lowlight = createLowlight(common);
 
@@ -51,7 +52,7 @@ const DocFile = Node.create({
 
 export const extensions = [
   StarterKit.configure({ codeBlock: false }),
-  Link.configure({ openOnClick: false, autolink: true }),
+  Link.extend({ inclusive: false }).configure({ openOnClick: false, autolink: true }),  // text typed behind a link stays outside of it
   Image,
   Table.configure({ resizable: false }),
   TableRow,
@@ -81,6 +82,7 @@ function named(file: File) {
 }
 
 export function Editor({ initial, initialHtml, onReady, onImage, onFile, onDiagram }: Props) {
+  const [linkFor, setLinkFor] = useState<string | null>(null); // link dialog open: the address of the link at the cursor ("" = none)
   // The handlers below live as long as the editor, the upload function may change: reach it through a ref.
   const upload = useRef(onImage);
   upload.current = onImage;
@@ -134,6 +136,13 @@ export function Editor({ initial, initialHtml, onReady, onImage, onFile, onDiagr
   });
   if (!editor) return null;
 
+  const applyLink = (href: string, title?: string) => {
+    setLinkFor(null);
+    const chain = editor.chain().focus();
+    if (!href) chain.extendMarkRange("link").unsetLink().run();
+    else if (title && editor.state.selection.empty && !editor.isActive("link")) chain.insertContent({ type: "text", text: title, marks: [{ type: "link", attrs: { href } }] }).run();
+    else chain.extendMarkRange("link").setLink({ href }).run();
+  };
   const btn = (icon: IconName, title: string, action: () => void, active = false) => (
     <button type="button" title={title} aria-label={title} aria-pressed={active}
       className={active ? "active" : ""} onMouseDown={(e) => e.preventDefault()} onClick={action}>
@@ -144,6 +153,7 @@ export function Editor({ initial, initialHtml, onReady, onImage, onFile, onDiagr
 
   return (
     <div className="editor">
+      {linkFor !== null && <LinkPicker prev={linkFor || undefined} onDone={applyLink} onCancel={() => setLinkFor(null)} />}
       <div className="toolbar" role="toolbar" aria-label="Formatierung">
         {btn("h1", "Überschrift 1", () => c().toggleHeading({ level: 1 }).run(), editor.isActive("heading", { level: 1 }))}
         {btn("h2", "Überschrift 2", () => c().toggleHeading({ level: 2 }).run(), editor.isActive("heading", { level: 2 }))}
@@ -159,13 +169,7 @@ export function Editor({ initial, initialHtml, onReady, onImage, onFile, onDiagr
         {btn("quote", "Zitat", () => c().toggleBlockquote().run(), editor.isActive("blockquote"))}
         {btn("codeBlock", "Codeblock", () => c().toggleCodeBlock().run(), editor.isActive("codeBlock"))}
         <span className="sep" />
-        {btn("link", "Link", async () => {
-          const prev = editor.getAttributes("link").href as string | undefined;
-          const url = await ask({ title: "Link einfügen", label: "Adresse (leer = Link entfernen)", initial: prev ?? "https://" });
-          if (url === null) return;
-          if (!url.trim()) c().unsetLink().run();
-          else c().extendMarkRange("link").setLink({ href: url.trim() }).run();
-        }, editor.isActive("link"))}
+        {btn("link", "Link", () => setLinkFor(editor.getAttributes("link").href ?? ""), editor.isActive("link"))}
         {onImage && btn("image", "Bild einfügen", () => {
           const input = document.createElement("input");
           input.type = "file";

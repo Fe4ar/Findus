@@ -2456,3 +2456,12 @@ def test_owner_sees_own_private_folder_shared_with_a_team(admin, db):
     assert len(mine) == 1 and mine[0]["from_team"] == "Du (privat)" and mine[0]["to_user"] is False
     theirs = [r for r in mc.get("/api/shares/incoming").json() if r["title"] == "Privat an Team"]
     assert len(theirs) == 1 and theirs[0]["from_team"] == "otto (privat)"
+
+
+def test_internal_page_links_survive_sanitizing(admin, db):
+    area = create(admin, "area", "Links")
+    target, page = create(admin, "page", "Ziel", area), create(admin, "page", "Quelle", area)
+    html = f'<p><a href="/n/{target}">Ziel</a> <a href="https://example.org/x">Extern</a> <a href="javascript:alert(1)">böse</a></p>'
+    assert admin.put(f"/api/pages/{page}/content", {"html": html, "base_version": 1, "content": {"type": "doc", "content": []}}, format="json").status_code == 200
+    stored = admin.get(f"/api/nodes/{page}").json()["content_html"]
+    assert f'href="/n/{target}"' in stored and 'href="https://example.org/x"' in stored and "javascript:" not in stored

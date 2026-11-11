@@ -293,7 +293,13 @@ function App() {
   useEffect(() => {
     if (!user) return;
     const onClick = (e: MouseEvent) => {
-      if (!wantsNewTab(e)) return;
+      if (!wantsNewTab(e)) {
+        // A link to a Findus page inside page text navigates inside the app instead of reloading.
+        const a = (e.target as Element | null)?.closest?.(".prose a[href]") as HTMLAnchorElement | null;
+        const href = a?.getAttribute("href") ?? "";
+        if (e.type === "click" && e.button === 0 && a && !a.hasAttribute("download") && /^\/n\/[0-9a-f-]{36}$/i.test(href)) { e.preventDefault(); go(href); }
+        return;
+      }
       const a = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
       const href = a?.getAttribute("href") ?? "";
       if (!a || a.hasAttribute("download") || a.target || !TAB_PATH.test(href)) return;
@@ -304,7 +310,7 @@ function App() {
     document.addEventListener("click", onClick, true);
     document.addEventListener("auxclick", onClick, true);
     return () => { document.removeEventListener("click", onClick, true); document.removeEventListener("auxclick", onClick, true); };
-  }, [user, openTab]);
+  }, [user, openTab, go]);
 
   const changed = useCallback(() => setTreeVersion((v) => v + 1), []);
 

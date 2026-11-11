@@ -2,6 +2,15 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.8.7] - 2026-11-11
+
+### Added
+- "Insert link" in the page editor has a Findus page picker next to the free address: search a page, folder or file by title (only content the user may read is offered) and the link to it is inserted; the external address keeps working in its own tab, and a link can be removed from the same dialog
+
+### Changed
+- Links to Findus pages inside page text open the target inside the app without reloading
+- Text typed directly behind a link no longer becomes part of the link
+
 ## [0.8.6] - 2026-11-10
 
 ### Added
