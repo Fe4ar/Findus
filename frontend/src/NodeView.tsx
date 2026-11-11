@@ -13,6 +13,7 @@ import { DocEmbed } from "./DocEmbed";
 import { Rights } from "./Rights";
 import { DrawioView, EMPTY_DRAWIO } from "./Drawio";
 import { ask, confirmDialog, notify } from "./Dialog";
+import { tr } from "./i18n";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -30,11 +31,11 @@ export function NodeView({ id, onSelect, onChanged }: Props) {
   useEffect(() => {
     api<NodeDetail>(`/api/nodes/${id}`)
       .then((n) => { setNode(n); if (n.kind === "page") api(`/api/nodes/${id}/view`, { method: "POST" }).catch(() => {}); })
-      .catch((e) => setError(e instanceof ApiError && e.status === 404 ? "Eintrag nicht gefunden." : "Laden fehlgeschlagen."));
+      .catch((e) => setError(e instanceof ApiError && e.status === 404 ? tr("Eintrag nicht gefunden.") : tr("Laden fehlgeschlagen.")));
   }, [id]);
 
   if (error) return <p className="error">{error}</p>;
-  if (!node) return <p className="muted">Lade …</p>;
+  if (!node) return <p className="muted">{tr("Lade …")}</p>;
 
   const update = (n: NodeDetail) => {
     setNode(n);
@@ -43,7 +44,7 @@ export function NodeView({ id, onSelect, onChanged }: Props) {
 
   return (
     <article className={`node${node.kind === "file" && isOffice(node.versions?.[0]?.original_name.toLowerCase() ?? "") ? " wide-doc" : ""}`}>
-      <nav className="breadcrumb" aria-label="Pfad">
+      <nav className="breadcrumb" aria-label={tr("Pfad")}>
         {node.breadcrumb.map((b) => (
           <span key={b.id}>
             <a href={`/n/${b.id}`} onClick={(e) => { e.preventDefault(); onSelect(b.id); }}>{b.title}</a>
@@ -56,8 +57,8 @@ export function NodeView({ id, onSelect, onChanged }: Props) {
         <div className="node-main">
           {(node.kind === "page" || node.kind === "file") && (
             <div className="tabs" role="tablist">
-              <button role="tab" aria-selected={tab === "content"} onClick={() => setTab("content")}>Inhalt</button>
-              <button role="tab" aria-selected={tab === "history"} onClick={() => setTab("history")}>Versionen</button>
+              <button role="tab" aria-selected={tab === "content"} onClick={() => setTab("content")}>{tr("Inhalt")}</button>
+              <button role="tab" aria-selected={tab === "history"} onClick={() => setTab("history")}>{tr("Versionen")}</button>
             </div>
           )}
           {tab === "history" ? (
@@ -85,15 +86,15 @@ function Container({ node, onSelect, onChanged }: { node: NodeDetail; onSelect: 
 
   async function create(kind: "folder" | "page") {
     const title = await ask(kind === "folder"
-      ? { title: "Neuer Ordner", label: "Name", ok: "Anlegen", validate: (v) => (v.trim() ? null : "Bitte einen Namen eingeben.") }
-      : { title: "Neue Seite", label: "Titel", ok: "Anlegen", validate: (v) => (v.trim() ? null : "Bitte einen Namen eingeben.") });
+      ? { title: tr("Neuer Ordner"), label: tr("Name"), ok: tr("Anlegen"), validate: (v) => (v.trim() ? null : tr("Bitte einen Namen eingeben.")) }
+      : { title: tr("Neue Seite"), label: tr("Titel"), ok: tr("Anlegen"), validate: (v) => (v.trim() ? null : tr("Bitte einen Namen eingeben.")) });
     if (!title?.trim()) return;
     try {
       const n = await api<NodeDetail>("/api/nodes", { method: "POST", body: { kind, title: title.trim(), parent: node.id } });
       onChanged();
       onSelect(n.id);
     } catch (e) {
-      notify(e instanceof ApiError ? e.message : "Anlegen fehlgeschlagen.");
+      notify(e instanceof ApiError ? e.message : tr("Anlegen fehlgeschlagen."));
     }
   }
 
@@ -102,10 +103,10 @@ function Container({ node, onSelect, onChanged }: { node: NodeDetail; onSelect: 
       <h1>{node.title}</h1>
       {node.permissions.write && (
         <div className="actions">
-          <button onClick={() => create("folder")}>+ Ordner</button>
-          <button onClick={() => create("page")}>+ Seite</button>
+          <button onClick={() => create("folder")}>{tr("+ Ordner")}</button>
+          <button onClick={() => create("page")}>{tr("+ Seite")}</button>
           <label className="button">
-            {busy ? "Lade hoch …" : "+ Datei hochladen"}
+            {busy ? tr("Lade hoch …") : tr("+ Datei hochladen")}
             <input type="file" multiple hidden disabled={busy} onChange={async (e) => {
               const files = Array.from(e.target.files ?? []);
               e.target.value = "";
@@ -113,7 +114,7 @@ function Container({ node, onSelect, onChanged }: { node: NodeDetail; onSelect: 
               try {
                 for (const f of files) await uploadFile(node.id, f);
               } catch (err) {
-                notify(err instanceof ApiError ? err.message : "Upload fehlgeschlagen.");
+                notify(err instanceof ApiError ? err.message : tr("Upload fehlgeschlagen."));
               }
               setBusy(false);
               onChanged();
@@ -122,12 +123,12 @@ function Container({ node, onSelect, onChanged }: { node: NodeDetail; onSelect: 
           </label>
         </div>
       )}
-      {children?.length === 0 && <p className="muted">Noch leer.</p>}
+      {children?.length === 0 && <p className="muted">{tr("Noch leer.")}</p>}
       <ul className="children">
         {children?.map((c) => (
           <li key={c.id}>
             <a href={`/n/${c.id}`} onClick={(e) => { e.preventDefault(); onSelect(c.id); }}>{c.title}</a>
-            <span className="muted"> · {{ area: "Bereich", folder: "Ordner", page: "Seite", file: "Datei", map: "Karte", link: "Netzplan" }[c.kind]}</span>
+            <span className="muted"> · {{ area: tr("Bereich"), folder: tr("Ordner"), page: tr("Seite"), file: tr("Datei"), map: tr("Karte"), link: tr("Netzplan") }[c.kind]}</span>
           </li>
         ))}
       </ul>
@@ -182,7 +183,7 @@ function Page({ node, onSaved }: { node: NodeDetail; onSaved: (n: NodeDetail) =>
       onSaved(n);
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) setConflict(e.body.current);
-      else notify(e instanceof ApiError ? e.message : "Speichern fehlgeschlagen.");
+      else notify(e instanceof ApiError ? e.message : tr("Speichern fehlgeschlagen."));
     }
     setSaving(false);
   }
@@ -193,7 +194,7 @@ function Page({ node, onSaved }: { node: NodeDetail; onSaved: (n: NodeDetail) =>
       const n = await uploadFile(node.parent, file, true);
       return n.versions?.[0]?.url ?? null;
     } catch (e) {
-      notify(e instanceof ApiError ? e.message : "Bild-Upload fehlgeschlagen.");
+      notify(e instanceof ApiError ? e.message : tr("Bild-Upload fehlgeschlagen."));
       return null;
     }
   }
@@ -204,22 +205,22 @@ function Page({ node, onSaved }: { node: NodeDetail; onSaved: (n: NodeDetail) =>
     try {
       return (await uploadFile(node.parent, file, true)).id;
     } catch (e) {
-      notify(e instanceof ApiError ? e.message : "Datei-Upload fehlgeschlagen.");
+      notify(e instanceof ApiError ? e.message : tr("Datei-Upload fehlgeschlagen."));
       return null;
     }
   }
 
   async function addDiagram() {
-    const ref = await ask({ title: "Schaubild einfügen", label: "Link oder ID eines vorhandenen .drawio-Schaubilds (leer = neues Schaubild im selben Ordner)", ok: "Einfügen" });
+    const ref = await ask({ title: tr("Schaubild einfügen"), label: tr("Link oder ID eines vorhandenen .drawio-Schaubilds (leer = neues Schaubild im selben Ordner)"), ok: tr("Einfügen") });
     if (ref === null) return null;
     const id = ref.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/)?.[0];
     if (id) return id;
-    if (ref.trim()) return notify("Keine gültige Schaubild-ID."), null;
+    if (ref.trim()) return notify(tr("Keine gültige Schaubild-ID.")), null;
     if (!node.parent) return null;
     try {
       return (await uploadFile(node.parent, new File([EMPTY_DRAWIO], `${node.title}.drawio`, { type: "application/xml" }))).id;
     } catch (e) {
-      notify(e instanceof ApiError ? e.message : "Schaubild anlegen fehlgeschlagen.");
+      notify(e instanceof ApiError ? e.message : tr("Schaubild anlegen fehlgeschlagen."));
       return null;
     }
   }
@@ -231,12 +232,12 @@ function Page({ node, onSaved }: { node: NodeDetail; onSaved: (n: NodeDetail) =>
         <div className="actions">
           {!editing && ["area", "folder", "page"].includes(node.kind) && (
             <span className="export-links">
-              Export:{" "}
-              <a href={`/api/nodes/${node.id}/export?type=pdf`} download>PDF</a>{" · "}
-              <a href={`/api/nodes/${node.id}/export?type=md`} download>Markdown (ZIP)</a>
+              {tr("Export:")}{" "}
+              <a href={`/api/nodes/${node.id}/export?type=pdf`} download>{tr("PDF")}</a>{" · "}
+              <a href={`/api/nodes/${node.id}/export?type=md`} download>{tr("Markdown (ZIP)")}</a>
             </span>
           )}
-          {!editing && node.permissions.write && <button className="primary" onClick={() => setEditing(true)}>Bearbeiten</button>}
+          {!editing && node.permissions.write && <button className="primary" onClick={() => setEditing(true)}>{tr("Bearbeiten")}</button>}
         </div>
       </header>
       {editing ? (
@@ -244,29 +245,27 @@ function Page({ node, onSaved }: { node: NodeDetail; onSaved: (n: NodeDetail) =>
           <Editor initial={node.content ?? null} initialHtml={node.content_html ?? ""}
             onReady={(ed) => (editorRef.current = ed)} onImage={uploadImage} onFile={uploadDoc} onDiagram={addDiagram} />
           <div className="save-bar">
-            <input placeholder="Kommentar zur Änderung (optional)" value={comment} onChange={(e) => setComment(e.target.value)}
-              aria-label="Kommentar zur Änderung" />
-            <button onClick={() => setEditing(false)} disabled={saving}>Abbrechen</button>
-            <button className="primary" onClick={save} disabled={saving}>{saving ? "Speichere …" : "Speichern"}</button>
+            <input placeholder={tr("Kommentar zur Änderung (optional)")} value={comment} onChange={(e) => setComment(e.target.value)}
+              aria-label={tr("Kommentar zur Änderung")} />
+            <button onClick={() => setEditing(false)} disabled={saving}>{tr("Abbrechen")}</button>
+            <button className="primary" onClick={save} disabled={saving}>{saving ? tr("Speichere …") : tr("Speichern")}</button>
           </div>
         </>
       ) : node.content_html ? (
         <Html html={node.content_html} />
       ) : (
-        <p className="muted">Diese Seite ist noch leer.</p>
+        <p className="muted">{tr("Diese Seite ist noch leer.")}</p>
       )}
       {conflict && (
         <div className="dialog-backdrop">
           <div className="dialog" role="alertdialog" aria-labelledby="conflict-title">
-            <h2 id="conflict-title">Seite wurde inzwischen geändert</h2>
-            <p>{conflict.updated_by} hat die Seite am {formatDate(conflict.updated_at)} gespeichert. Deine Änderungen
-              würden diese überschreiben.</p>
-            <p>Kopiere dir bei Bedarf deinen Text, bevor du neu lädst.</p>
+            <h2 id="conflict-title">{tr("Seite wurde inzwischen geändert")}</h2>
+            <p>{conflict.updated_by} {tr("hat die Seite am")}{" "}{formatDate(conflict.updated_at)} {tr("gespeichert. Deine Änderungen würden diese überschreiben.")}</p>
+            <p>{tr("Kopiere dir bei Bedarf deinen Text, bevor du neu lädst.")}</p>
             <div className="actions">
-              <button onClick={() => setConflict(null)}>Weiter bearbeiten</button>
+              <button onClick={() => setConflict(null)}>{tr("Weiter bearbeiten")}</button>
               <button className="primary" onClick={() => { setConflict(null); setEditing(false); onSaved(conflict); }}>
-                Neu laden
-              </button>
+                {tr("Neu laden")}</button>
             </div>
           </div>
         </div>
@@ -287,8 +286,8 @@ function History({ node, onRestored }: { node: NodeDetail; onRestored: (n: NodeD
   useEffect(() => {
     api<any[]>(`/api/nodes/${node.id}/history`).then(setItems);
   }, [node.id, node.version]);
-  if (!items) return <p className="muted">Lade …</p>;
-  if (!items.length) return <p className="muted">Noch keine Versionen.</p>;
+  if (!items) return <p className="muted">{tr("Lade …")}</p>;
+  if (!items.length) return <p className="muted">{tr("Noch keine Versionen.")}</p>;
 
   async function showDiff(i: number) {
     const get = (id: number) => api(`/api/nodes/${node.id}/history/${id}`).then((r: any) => stripHtml(r.content_html));
@@ -301,33 +300,33 @@ function History({ node, onRestored }: { node: NodeDetail; onRestored: (n: NodeD
     <section>
       <table className="history">
         <thead>
-          <tr><th>Datum</th><th>Von</th><th>Kommentar</th><th /></tr>
+          <tr><th>{tr("Datum")}</th><th>{tr("Von")}</th><th>{tr("Kommentar")}</th><th /></tr>
         </thead>
         <tbody>
           {items.map((v, i) => (
             <tr key={v.id}>
               <td>{formatDate(v.created_at)}</td>
               <td>{v.user ?? "–"}</td>
-              <td>{v.comment || (v.source === "onlyoffice" ? "Bearbeitet in OnlyOffice" : v.original_name) || "–"}</td>
+              <td>{v.comment || (v.source === "onlyoffice" ? tr("Bearbeitet in OnlyOffice") : v.original_name) || "–"}</td>
               <td className="actions">
                 {node.kind === "page" ? (
                   <>
-                    <button onClick={() => showDiff(i)}>Änderungen</button>
+                    <button onClick={() => showDiff(i)}>{tr("Änderungen")}</button>
                     {i > 0 && node.permissions.write && (
                       <button onClick={async () => {
-                        if (await confirmDialog({ title: "Diesen Stand wiederherstellen?", message: "Er wird als neue Version gespeichert, der aktuelle Stand bleibt im Verlauf.", ok: "Wiederherstellen" }))
+                        if (await confirmDialog({ title: tr("Diesen Stand wiederherstellen?"), message: tr("Er wird als neue Version gespeichert, der aktuelle Stand bleibt im Verlauf."), ok: tr("Wiederherstellen") }))
                           onRestored(await api(`/api/nodes/${node.id}/history/${v.id}/restore`, { method: "POST" }));
-                      }}>Wiederherstellen</button>
+                      }}>{tr("Wiederherstellen")}</button>
                     )}
                   </>
                 ) : (
                   <>
-                    <a className="button" href={`${v.url}?download=1`}>Herunterladen</a>
+                    <a className="button" href={`${v.url}?download=1`}>{tr("Herunterladen")}</a>
                     {i > 0 && node.permissions.write && (
                       <button onClick={async () => {
-                        if (await confirmDialog({ title: "Diese Fassung wiederherstellen?", message: "Sie wird als neue Version gespeichert, die aktuelle bleibt im Verlauf.", ok: "Wiederherstellen" }))
+                        if (await confirmDialog({ title: tr("Diese Fassung wiederherstellen?"), message: tr("Sie wird als neue Version gespeichert, die aktuelle bleibt im Verlauf."), ok: tr("Wiederherstellen") }))
                           onRestored(await api(`/api/files/${node.id}/versions/${v.id}/restore`, { method: "POST" }));
-                      }}>Wiederherstellen</button>
+                      }}>{tr("Wiederherstellen")}</button>
                     )}
                   </>
                 )}
@@ -338,7 +337,7 @@ function History({ node, onRestored }: { node: NodeDetail; onRestored: (n: NodeD
       </table>
       {diff && (
         <div className="diff">
-          <h3>Änderungen der Version vom {diff.title}</h3>
+          <h3>{tr("Änderungen der Version vom")}{" "}{diff.title}</h3>
           <pre>
             {diff.parts.map((p, i) => (
               <span key={i} className={p.added ? "add" : p.removed ? "del" : ""}>{p.value}</span>
@@ -362,48 +361,48 @@ function Meta({ node, onSaved }: { node: NodeDetail; onSaved: (n: NodeDetail) =>
       onSaved(await api(`/api/nodes/${node.id}`, { method: "PATCH", body }));
       return true;
     } catch (e) {
-      notify(e instanceof ApiError ? e.message : "Speichern fehlgeschlagen.");
+      notify(e instanceof ApiError ? e.message : tr("Speichern fehlgeschlagen."));
       return false;
     }
   }
 
   return (
-    <aside className="meta" aria-label="Eigenschaften">
+    <aside className="meta" aria-label={tr("Eigenschaften")}>
       {editing ? (
         <form onSubmit={async (e) => {
           e.preventDefault();
           if (await patch({ title, description, tags: tags.split(",") })) setEditing(false);
         }}>
-          <label>Titel<input value={title} onChange={(e) => setTitle(e.target.value)} required /></label>
-          <label>Beschreibung<textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} /></label>
-          <label>Tags (mit Komma getrennt)<input value={tags} onChange={(e) => setTags(e.target.value)} /></label>
+          <label>{tr("Titel")}<input value={title} onChange={(e) => setTitle(e.target.value)} required /></label>
+          <label>{tr("Beschreibung")}<textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} /></label>
+          <label>{tr("Tags (mit Komma getrennt)")}<input value={tags} onChange={(e) => setTags(e.target.value)} /></label>
           <div className="actions">
-            <button type="button" onClick={() => setEditing(false)}>Abbrechen</button>
-            <button type="submit" className="primary">Speichern</button>
+            <button type="button" onClick={() => setEditing(false)}>{tr("Abbrechen")}</button>
+            <button type="submit" className="primary">{tr("Speichern")}</button>
           </div>
         </form>
       ) : (
         <dl>
-          {node.description && (<><dt>Beschreibung</dt><dd>{node.description}</dd></>)}
-          {node.tags.length > 0 && (<><dt>Tags</dt><dd>{node.tags.map((t) => <span key={t} className="tag">{t}</span>)}</dd></>)}
-          <dt>Erstellt</dt><dd>{node.created_by ?? "–"}, {formatDate(node.created_at)}</dd>
-          <dt>Zuletzt geändert</dt><dd>{node.updated_by ?? "–"}, {formatDate(node.updated_at)}</dd>
+          {node.description && (<><dt>{tr("Beschreibung")}</dt><dd>{node.description}</dd></>)}
+          {node.tags.length > 0 && (<><dt>{tr("Tags")}</dt><dd>{node.tags.map((t) => <span key={t} className="tag">{t}</span>)}</dd></>)}
+          <dt>{tr("Erstellt")}</dt><dd>{node.created_by ?? "–"}, {formatDate(node.created_at)}</dd>
+          <dt>{tr("Zuletzt geändert")}</dt><dd>{node.updated_by ?? "–"}, {formatDate(node.updated_at)}</dd>
           {(node.kind === "page" || node.kind === "file") && (
             <>
-              <dt>Status</dt>
+              <dt>{tr("Status")}</dt>
               <dd>
                 {node.permissions.publish ? (
-                  <select aria-label="Status" value={node.status} onChange={(e) => patch({ status: e.target.value })}>
-                    <option value="draft">Entwurf</option>
-                    <option value="published">Veröffentlicht</option>
+                  <select aria-label={tr("Status")} value={node.status} onChange={(e) => patch({ status: e.target.value })}>
+                    <option value="draft">{tr("Entwurf")}</option>
+                    <option value="published">{tr("Veröffentlicht")}</option>
                   </select>
-                ) : node.status === "draft" ? "Entwurf" : "Veröffentlicht"}
+                ) : node.status === "draft" ? tr("Entwurf") : tr("Veröffentlicht")}
               </dd>
             </>
           )}
         </dl>
       )}
-      {!editing && node.permissions.write && <button onClick={() => setEditing(true)}>Eigenschaften bearbeiten</button>}
+      {!editing && node.permissions.write && <button onClick={() => setEditing(true)}>{tr("Eigenschaften bearbeiten")}</button>}
       {!editing && <MapLinks id={node.id} />}
       {!editing && <Rights node={node} onSaved={onSaved} />}
     </aside>

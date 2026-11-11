@@ -1,3 +1,4 @@
+import { tr } from "../i18n";
 // Map download as SVG (styles inlined, so it looks the same outside Findus) or PNG (rendered via canvas).
 const PROPS = ["fill", "fill-opacity", "stroke", "stroke-width", "stroke-dasharray", "opacity", "font-size", "font-family", "font-weight"];
 
@@ -62,7 +63,7 @@ export function exportPng(svg: SVGSVGElement, title: string, scale = 2) {
       ctx.drawImage(img, 0, 0);
       canvas.toBlob((b) => (b ? (download(b, `${safeName(title)}.png`), resolve()) : reject(new Error("PNG"))), "image/png");
     };
-    img.onerror = () => reject(new Error("SVG konnte nicht gerendert werden"));
+    img.onerror = () => reject(new Error(tr("SVG konnte nicht gerendert werden")));
     img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(text);
   });
 }

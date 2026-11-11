@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
+import { tr } from "./i18n";
 
 interface Hit { id: string; kind: string; title: string; path: string; group?: string }
 const KIND_LABEL: Record<string, string> = { folder: "Ordner", page: "Seite", file: "Datei" };
@@ -24,15 +25,15 @@ export function LinkPicker({ prev, onDone, onCancel }: { prev?: string; onDone: 
   }, [q, tab]);
   const pick = (h: Hit) => onDone(`/n/${h.id}`, h.title);
   return (
-    <dialog ref={ref} className="dialog modal link-picker" aria-label="Link einfügen" onClose={onCancel}>
-      <h2>Link einfügen</h2>
+    <dialog ref={ref} className="dialog modal link-picker" aria-label={tr("Link einfügen")} onClose={onCancel}>
+      <h2>{tr("Link einfügen")}</h2>
       <div className="tabs-inline" role="tablist">
-        <button role="tab" type="button" aria-selected={tab === "findus"} onClick={() => setTab("findus")}>Findus-Seite</button>
-        <button role="tab" type="button" aria-selected={tab === "extern"} onClick={() => setTab("extern")}>Externe Adresse</button>
+        <button role="tab" type="button" aria-selected={tab === "findus"} onClick={() => setTab("findus")}>{tr("Findus-Seite")}</button>
+        <button role="tab" type="button" aria-selected={tab === "extern"} onClick={() => setTab("extern")}>{tr("Externe Adresse")}</button>
       </div>
       {tab === "findus" ? (
         <>
-          <input type="search" autoFocus placeholder="Seite, Ordner oder Datei suchen …" aria-label="Findus-Seite suchen" value={q} onChange={(e) => setQ(e.target.value)}
+          <input type="search" autoFocus placeholder={tr("Seite, Ordner oder Datei suchen …")} aria-label={tr("Findus-Seite suchen")} value={q} onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "ArrowDown" && hits?.length) { e.preventDefault(); setActive((active + 1) % hits.length); }
               else if (e.key === "ArrowUp" && hits?.length) { e.preventDefault(); setActive((active - 1 + hits.length) % hits.length); }
@@ -43,23 +44,23 @@ export function LinkPicker({ prev, onDone, onCancel }: { prev?: string; onDone: 
               {hits.map((h, i) => (
                 <li key={h.id} role="option" aria-selected={i === active}>
                   <button type="button" className={i === active ? "active" : ""} onMouseEnter={() => setActive(i)} onClick={() => pick(h)}>
-                    <strong>{h.title}</strong><small className="muted">{KIND_LABEL[h.kind]}{h.path || h.group ? ` · ${h.path || h.group}` : ""}</small>
+                    <strong>{h.title}</strong><small className="muted">{tr(KIND_LABEL[h.kind])}{h.path || h.group ? ` · ${h.path || h.group}` : ""}</small>
                   </button>
                 </li>
               ))}
             </ul>
-          ) : <p className="muted small">Nichts gefunden.</p>)}
-          {!hits && <p className="muted small">Tippe einen Teil des Titels. Es werden nur Inhalte angezeigt, die du sehen darfst.</p>}
+          ) : <p className="muted small">{tr("Nichts gefunden.")}</p>)}
+          {!hits && <p className="muted small">{tr("Tippe einen Teil des Titels. Es werden nur Inhalte angezeigt, die du sehen darfst.")}</p>}
         </>
       ) : (
-        <label>Adresse<input type="url" value={url} autoFocus onChange={(e) => setUrl(e.target.value)}
+        <label>{tr("Adresse")}<input type="url" value={url} autoFocus onChange={(e) => setUrl(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && url.trim()) { e.preventDefault(); onDone(url.trim()); } }} /></label>
       )}
       <div className="actions">
-        {prev && <button type="button" className="danger" onClick={() => onDone("")}>Link entfernen</button>}
+        {prev && <button type="button" className="danger" onClick={() => onDone("")}>{tr("Link entfernen")}</button>}
         <span className="spacer" />
-        <button type="button" onClick={() => ref.current?.close()}>Abbrechen</button>
-        {tab === "extern" && <button type="button" className="primary" disabled={!url.trim()} onClick={() => onDone(url.trim())}>Übernehmen</button>}
+        <button type="button" onClick={() => ref.current?.close()}>{tr("Abbrechen")}</button>
+        {tab === "extern" && <button type="button" className="primary" disabled={!url.trim()} onClick={() => onDone(url.trim())}>{tr("Übernehmen")}</button>}
       </div>
     </dialog>
   );

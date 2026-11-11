@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { tr } from "./i18n";
 
 export interface NavTab { id: string; label: string; path: string; team?: boolean }
 
@@ -59,13 +60,13 @@ export function TabNav({ tabs, section, go }: { tabs: NavTab[]; section: string;
   const rest = tabs.filter((t) => hidden.includes(t.id));
   return (
     <div className="tabs-wrap" ref={wrap}>
-      <nav className="tabs" aria-label="Bereiche">
+      <nav className="tabs" aria-label={tr("Bereiche")}>
         {tabs.filter((t) => !hidden.includes(t.id)).map((t) => link(t))}
         {rest.length > 0 && (
           <div className="tabs-more" ref={more}>
-            <button type="button" className="tab" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>Mehr ▾</button>
+            <button type="button" className="tab" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>{tr("Mehr ▾")}</button>
             {open && (
-              <div className="tabs-more-menu" role="menu" aria-label="Weitere Bereiche">
+              <div className="tabs-more-menu" role="menu" aria-label={tr("Weitere Bereiche")}>
                 {rest.map((t) => link(t, { role: "menuitem" }))}
               </div>
             )}
@@ -74,7 +75,7 @@ export function TabNav({ tabs, section, go }: { tabs: NavTab[]; section: string;
       </nav>
       <div className="tabs tabs-probe" ref={probe} aria-hidden="true">
         {tabs.map((t) => <span key={t.id} className="tab">{t.label}</span>)}
-        <span className="tab">Mehr ▾</span>
+        <span className="tab">{tr("Mehr ▾")}</span>
       </div>
     </div>
   );

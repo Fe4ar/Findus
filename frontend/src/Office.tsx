@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, Me, NodeDetail } from "./api";
 import { Icon } from "./Icons";
+import { tr } from "./i18n";
 
 let meCache: Promise<Me> | null = null;
 /** Whether Collabora is set up on this server (cached; the answer does not change while the page is open). */
@@ -13,11 +14,11 @@ export const useCollabora = () => {
 /** Pill with a sliding marker: Ansehen / Bearbeiten. Bearbeiten is greyed out without write right. */
 export function ModeSwitch({ mode, onChange, canEdit }: { mode: "view" | "edit"; onChange: (m: "view" | "edit") => void; canEdit: boolean }) {
   return (
-    <div className="mode-switch" role="radiogroup" aria-label="Ansicht" data-mode={mode}>
+    <div className="mode-switch" role="radiogroup" aria-label={tr("Ansicht")} data-mode={mode}>
       <span className="mode-thumb" aria-hidden="true" />
-      <button role="radio" aria-checked={mode === "view"} onClick={() => onChange("view")}><Icon name="eye" size={16} /> Ansehen</button>
+      <button role="radio" aria-checked={mode === "view"} onClick={() => onChange("view")}><Icon name="eye" size={16} /> {tr("Ansehen")}</button>
       <button role="radio" aria-checked={mode === "edit"} disabled={!canEdit} onClick={() => onChange("edit")}
-        title={canEdit ? undefined : "Du hast hier nur Leserechte."}><Icon name="pen" size={16} /> Bearbeiten</button>
+        title={canEdit ? undefined : tr("Du hast hier nur Leserechte.")}><Icon name="pen" size={16} /> {tr("Bearbeiten")}</button>
     </div>
   );
 }
@@ -30,7 +31,7 @@ export function Collabora({ node, mode }: { node: NodeDetail; mode: "view" | "ed
   const name = `collabora-${node.id}-${mode}`;
   useEffect(() => {
     api<{ url: string; token: string; ttl: number }>(`/api/files/${node.id}/collabora?mode=${mode}`).then(setCfg)
-      .catch((e) => setError(e instanceof ApiError ? e.message : "Collabora konnte nicht geladen werden."));
+      .catch((e) => setError(e instanceof ApiError ? e.message : tr("Collabora konnte nicht geladen werden.")));
   }, [node.id, mode]);
   useEffect(() => { if (cfg) form.current?.submit(); }, [cfg]);
   if (error) return <p className="error" role="alert">{error}</p>;

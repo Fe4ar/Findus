@@ -11,6 +11,7 @@ import { Props } from "./Props";
 import { MapHistory } from "./History";
 import { RACK_TYPES, firstFree, rackTarget, Face } from "./rack";
 import { DetailModal, DetailPanel, Facts } from "./Detail";
+import { tr } from "../i18n";
 
 const HISTORY = 100; // undo steps kept per editing session
 const ZOOMS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
@@ -55,7 +56,7 @@ export function MapView({ id, onChanged, search = location.search }: { id: strin
     return () => box.removeEventListener("wheel", onWheel);
   });
 
-  const load = useCallback(() => api<NodeDetail>(`/api/nodes/${id}`).then(setNode).catch(() => setError("Karte konnte nicht geladen werden.")), [id]);
+  const load = useCallback(() => api<NodeDetail>(`/api/nodes/${id}`).then(setNode).catch(() => setError(tr("Karte konnte nicht geladen werden."))), [id]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     const poll = () => api<Record<string, boolean>>(`/api/maps/${id}/status`).then(setStatus).catch(() => undefined);
@@ -170,9 +171,9 @@ export function MapView({ id, onChanged, search = location.search }: { id: strin
     const base: El = { id: newId(), type, x: 40, y: 40 };
     const extra: Partial<El> = {
       rack: { name: "Rack", w: 300, units: 12 },
-      device: { name: "Gerät", icon: "🖥️", w: 170, h: 56 },
+      device: { name: tr("Gerät"), icon: "🖥️", w: 170, h: 56 },
       switch: { name: "Switch", icon: "🔀", w: 260, h: 60, ports: 8 },
-      text: { text: "Text", w: 200, h: 40 },
+      text: { text: tr("Text"), w: 200, h: 40 },
       link: { x: undefined, y: undefined, from: el && el.type !== "link" && el.type !== "text" ? el.id : "", to: "", label: "" },
     }[type] as Partial<El>;
     edit((d) => ({ ...d, elements: [...d.elements, { ...base, ...extra }] }));
@@ -188,7 +189,7 @@ export function MapView({ id, onChanged, search = location.search }: { id: strin
     const hit = x !== undefined ? rackTarget(content.elements, byId, x, y!, heightOf(e), e) : null;
     const rack = hit?.rack ?? (x === undefined && el?.type === "rack" ? el : null);
     const u = hit ? (hit.free ? hit.u : null) : rack ? firstFree(content.elements, rack, t.h, e) : null;
-    if (rack && u === null) return notify(`In „${rack.name || "Rack"}“ sind an dieser Stelle keine ${t.h} HE frei.`);
+    if (rack && u === null) return notify(tr("In „{v}“ sind an dieser Stelle keine {h} HE frei.", { v: rack.name || "Rack", h: t.h }));
     const placed: El = rack ? { ...e, rack: { id: rack.id, u: u!, h: t.h } } : { ...e, x: Math.max(0, (x ?? 60) - 20), y: Math.max(0, (y ?? 60) - 10) };
     edit((d) => ({ ...d, elements: [...d.elements, placed] }));
     setSelected([placed.id]);
@@ -196,7 +197,7 @@ export function MapView({ id, onChanged, search = location.search }: { id: strin
 
   async function save() {
     if (!node || !draft) return;
-    const comment = await ask({ title: "Karte speichern", label: "Kommentar zur Änderung (optional)", ok: "Speichern" });
+    const comment = await ask({ title: tr("Karte speichern"), label: tr("Kommentar zur Änderung (optional)"), ok: tr("Speichern") });
     if (comment === null) return;
     try {
       const n = await api<NodeDetail>(`/api/pages/${id}/content`, {
@@ -207,8 +208,8 @@ export function MapView({ id, onChanged, search = location.search }: { id: strin
       onChanged();
     } catch (e) {
       notify(e instanceof ApiError && e.status === 409
-        ? "Die Karte wurde inzwischen von jemand anderem gespeichert. Bitte Änderungen notieren und neu laden."
-        : e instanceof ApiError ? e.message : "Speichern fehlgeschlagen.");
+        ? tr("Die Karte wurde inzwischen von jemand anderem gespeichert. Bitte Änderungen notieren und neu laden.")
+        : e instanceof ApiError ? e.message : tr("Speichern fehlgeschlagen."));
     }
   }
 
@@ -223,7 +224,7 @@ export function MapView({ id, onChanged, search = location.search }: { id: strin
   useEffect(() => { if (node && q && !primary) findNext(); }, [node?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (error) return <p className="error" role="alert">{error}</p>;
-  if (!node) return <p className="muted">Karte wird geladen …</p>;
+  if (!node) return <p className="muted">{tr("Karte wird geladen …")}</p>;
   const checked = content.elements.filter((e) => e.check && status[e.id] !== undefined);
   const modalEl = content.elements.find((e) => e.id === modal);
   const zoomTo = (z: number) => setZoom(Math.min(3, Math.max(0.5, z)));
@@ -234,27 +235,27 @@ export function MapView({ id, onChanged, search = location.search }: { id: strin
         <div className="actions">
           {editing ? (
             <>
-              <button className="primary" onClick={save}>Speichern</button>
-              <button onClick={async () => { if (await confirmDialog({ title: "Änderungen verwerfen?", ok: "Verwerfen", danger: true })) { setDraft(null); setSelected([]); } }}>Abbrechen</button>
+              <button className="primary" onClick={save}>{tr("Speichern")}</button>
+              <button onClick={async () => { if (await confirmDialog({ title: tr("Änderungen verwerfen?"), ok: tr("Verwerfen"), danger: true })) { setDraft(null); setSelected([]); } }}>{tr("Abbrechen")}</button>
             </>
           ) : (
             <>
               <div role="tablist" className="actions">
-                <button role="tab" aria-selected={tab === "map"} onClick={() => setTab("map")}>Karte</button>
-                <button role="tab" aria-selected={tab === "history"} onClick={() => setTab("history")}>Verlauf</button>
+                <button role="tab" aria-selected={tab === "map"} onClick={() => setTab("map")}>{tr("Karte")}</button>
+                <button role="tab" aria-selected={tab === "history"} onClick={() => setTab("history")}>{tr("Verlauf")}</button>
               </div>
               {node.permissions.write && (
                 <button className="primary" onClick={() => {
                   setDraft(structuredClone(content));
                   setTab("map");
                   api<PageRef[]>("/api/pages").then(setPages).catch(() => setPages([]));
-                }}>Bearbeiten</button>
+                }}>{tr("Bearbeiten")}</button>
               )}
             </>
           )}
         </div>
       </div>
-      {content.testdaten && <p className="karte-banner" role="note"><strong>Testdaten</strong>{content.hinweis ? ` – ${content.hinweis}` : ""}</p>}
+      {content.testdaten && <p className="karte-banner" role="note"><strong>{tr("Testdaten")}</strong>{content.hinweis ? ` – ${content.hinweis}` : ""}</p>}
       {tab === "history" && !editing ? (
         <MapHistory node={node} onRestored={(n) => { setNode(n); setTab("map"); onChanged(); }} />
       ) : (
@@ -263,61 +264,58 @@ export function MapView({ id, onChanged, search = location.search }: { id: strin
             <>
               <div className="karte-toolbar actions">
                 {(["rack", "device", "switch", "text", "link"] as ElType[]).map((t) => (
-                  <button key={t} onClick={() => add(t)}>+ {TYPE_LABEL[t]}</button>
+                  <button key={t} onClick={() => add(t)}>+ {tr(TYPE_LABEL[t])}</button>
                 ))}
                 <span className="karte-sep" />
-                <button className="icon-btn" title="Rückgängig (Strg+Z)" aria-label="Rückgängig" disabled={!past.current.length} onClick={undo}><Icon name="undo" /></button>
-                <button className="icon-btn" title="Wiederholen (Strg+Y)" aria-label="Wiederholen" disabled={!future.current.length} onClick={redo}><Icon name="redo" /></button>
-                <button className="icon-btn" title="Löschen (Entf)" aria-label="Auswahl löschen" disabled={!selected.length} onClick={() => remove(selected)}><Icon name="trash" /></button>
+                <button className="icon-btn" title={tr("Rückgängig (Strg+Z)")} aria-label={tr("Rückgängig")} disabled={!past.current.length} onClick={undo}><Icon name="undo" /></button>
+                <button className="icon-btn" title={tr("Wiederholen (Strg+Y)")} aria-label={tr("Wiederholen")} disabled={!future.current.length} onClick={redo}><Icon name="redo" /></button>
+                <button className="icon-btn" title={tr("Löschen (Entf)")} aria-label={tr("Auswahl löschen")} disabled={!selected.length} onClick={() => remove(selected)}><Icon name="trash" /></button>
                 <label className="karte-check">
-                  <input type="checkbox" checked={!!draft.testdaten} onChange={(ev) => edit((d) => ({ ...d, testdaten: ev.target.checked }))} /> Testdaten
-                </label>
-                <span className="muted">Ziehen verschiebt und rastet im Rack ein, Umschalt-Klick wählt mehrere, Strg+C/V kopiert, Doppelklick zeigt alle Felder.</span>
+                  <input type="checkbox" checked={!!draft.testdaten} onChange={(ev) => edit((d) => ({ ...d, testdaten: ev.target.checked }))} /> {tr("Testdaten")}</label>
+                <span className="muted">{tr("Ziehen verschiebt und rastet im Rack ein, Umschalt-Klick wählt mehrere, Strg+C/V kopiert, Doppelklick zeigt alle Felder.")}</span>
               </div>
-              <div className="karte-palette" aria-label="Rack-Geräte: ins Rack ziehen oder anklicken (landet im gewählten Rack)">
+              <div className="karte-palette" aria-label={tr("Rack-Geräte: ins Rack ziehen oder anklicken (landet im gewählten Rack)")}>
                 {Object.entries(RACK_TYPES).map(([k, t]) => (
-                  <button key={k} draggable title={`${t.label} (${t.h} HE)`} onClick={() => addKind(k)}
+                  <button key={k} draggable title={tr("{label} ({h} HE)", { label: tr(t.label), h: t.h })} onClick={() => addKind(k)}
                     onDragStart={(ev) => { ev.dataTransfer.setData("text/x-rack-kind", k); ev.dataTransfer.effectAllowed = "copy"; }}>
-                    {t.icon && <span aria-hidden="true">{t.icon}</span>}{t.label}
+                    {t.icon && <span aria-hidden="true">{t.icon}</span>}{tr(t.label)}
                   </button>
                 ))}
               </div>
             </>
           ) : (
             <p className="muted">
-              {checked.filter((e) => status[e.id]).length} von {checked.length} geprüften Elementen erreichbar · aktualisiert sich jede Minute
-            </p>
+              {checked.filter((e) => status[e.id]).length} {tr("von")}{" "}{checked.length} {tr("geprüften Elementen erreichbar · aktualisiert sich jede Minute")}</p>
           )}
           <div className="karte-view actions">
-            <input type="search" className="karte-search" placeholder="In der Karte suchen (Name, IP, Host, MAC) …" aria-label="In der Karte suchen"
+            <input type="search" className="karte-search" placeholder={tr("In der Karte suchen (Name, IP, Host, MAC) …")} aria-label={tr("In der Karte suchen")}
               value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); findNext(); } }} />
-            {q && <span className="muted" role="status">{matches.size} Treffer{matches.size ? " · Enter springt weiter" : ""}</span>}
+            {q && <span className="muted" role="status">{matches.size} {tr("Treffer")}{matches.size ? tr(" · Enter springt weiter") : ""}</span>}
             <span className="spacer" />
             {content.elements.some((e) => e.type === "rack") && (
-              <div role="radiogroup" aria-label="Rack-Ansicht" className="actions">
+              <div role="radiogroup" aria-label={tr("Rack-Ansicht")} className="actions">
                 {(["front", "back"] as Face[]).map((f) => (
                   <button key={f} role="radio" aria-checked={face === f} className={face === f ? "primary" : undefined}
-                    onClick={() => setFace(f)}>{f === "front" ? "Vorderseite" : "Rückseite"}</button>
+                    onClick={() => setFace(f)}>{f === "front" ? tr("Vorderseite") : tr("Rückseite")}</button>
                 ))}
               </div>
             )}
-            <label className="karte-check">Kabelfarbe
-              <select value={cableMode} onChange={(e) => setCableMode(e.target.value as CableMode)}>
-                <option value="medium">nach Medium</option>
-                <option value="vlan">nach VLAN</option>
-                <option value="none">einheitlich</option>
+            <label className="karte-check">{tr("Kabelfarbe")}<select value={cableMode} onChange={(e) => setCableMode(e.target.value as CableMode)}>
+                <option value="medium">{tr("nach Medium")}</option>
+                <option value="vlan">{tr("nach VLAN")}</option>
+                <option value="none">{tr("einheitlich")}</option>
               </select>
             </label>
             {!editing && content.elements.length > 0 && (
               <>
-                <button onClick={() => svgRef.current && exportSvg(svgRef.current, node.title)} title="Karte als SVG herunterladen">SVG</button>
-                <button onClick={() => svgRef.current && exportPng(svgRef.current, node.title).catch(() => notify("PNG-Export fehlgeschlagen."))}
-                  title="Karte als PNG herunterladen (zum Ausdrucken)">PNG</button>
+                <button onClick={() => svgRef.current && exportSvg(svgRef.current, node.title)} title={tr("Karte als SVG herunterladen")}>{tr("SVG")}</button>
+                <button onClick={() => svgRef.current && exportPng(svgRef.current, node.title).catch(() => notify(tr("PNG-Export fehlgeschlagen.")))}
+                  title={tr("Karte als PNG herunterladen (zum Ausdrucken)")}>{tr("PNG")}</button>
               </>
             )}
-            <button className="icon-btn" aria-label="Verkleinern" title="Verkleinern" onClick={() => zoomTo(ZOOMS.filter((z) => z < zoom).pop() ?? 0.5)}>−</button>
-            <button onClick={() => setZoom(1)} title="Alles zeigen (an die Breite anpassen)">{Math.round(zoom * 100)} %</button>
-            <button className="icon-btn" aria-label="Vergrößern" title="Vergrößern (Strg+Mausrad)" onClick={() => zoomTo(ZOOMS.find((z) => z > zoom) ?? 3)}>+</button>
+            <button className="icon-btn" aria-label={tr("Verkleinern")} title={tr("Verkleinern")} onClick={() => zoomTo(ZOOMS.filter((z) => z < zoom).pop() ?? 0.5)}>−</button>
+            <button onClick={() => setZoom(1)} title={tr("Alles zeigen (an die Breite anpassen)")}>{Math.round(zoom * 100)} %</button>
+            <button className="icon-btn" aria-label={tr("Vergrößern")} title={tr("Vergrößern (Strg+Mausrad)")} onClick={() => zoomTo(ZOOMS.find((z) => z > zoom) ?? 3)}>+</button>
           </div>
           <CableLegend content={content} mode={cableMode} />
           {!editing && el?.diagram && showDiagram && <DrawioView key={el.diagram} fileId={el.diagram} />}
@@ -327,13 +325,13 @@ export function MapView({ id, onChanged, search = location.search }: { id: strin
                 <Canvas content={content} status={status} editing={editing} selected={selected} onSelect={select}
                   onChange={change} onOpen={setModal} onDropKind={addKind} zoom={zoom} matches={matches} cableMode={cableMode} svgRef={svgRef} face={face} />
               ) : (
-                <p className="muted">Die Karte ist leer. {node.permissions.write && "Mit „Bearbeiten“ Elemente hinzufügen."}</p>
+                <p className="muted">{tr("Die Karte ist leer.")}{" "}{node.permissions.write && tr("Mit „Bearbeiten“ Elemente hinzufügen.")}</p>
               )}
             </div>
             {editing ? (el ? (
               <Props el={el} content={content} pages={pages} onChange={(p) => change(el.id, p)} onDelete={() => remove(selected)} />
             ) : (
-              <div className="karte-props muted">Element anklicken, um es zu bearbeiten.</div>
+              <div className="karte-props muted">{tr("Element anklicken, um es zu bearbeiten.")}</div>
             )) : el && el.type !== "link" && (
               <DetailPanel el={el} content={content} status={status} onOpen={() => setModal(el.id)}
                 diagramOpen={showDiagram} onDiagram={() => setShowDiagram(!showDiagram)} />
@@ -342,7 +340,7 @@ export function MapView({ id, onChanged, search = location.search }: { id: strin
         </>
       )}
       {modalEl && (
-        <DetailModal title={modalEl.name || TYPE_LABEL[modalEl.type]} onClose={() => setModal(null)}>
+        <DetailModal title={modalEl.name || tr(TYPE_LABEL[modalEl.type])} onClose={() => setModal(null)}>
           {editing ? <Props el={modalEl} content={content} pages={pages} onChange={(p) => change(modalEl.id, p)}
             onDelete={() => { setModal(null); remove([modalEl.id]); }} />
             : <Facts el={modalEl} content={content} status={status} />}
@@ -356,13 +354,13 @@ export function MapView({ id, onChanged, search = location.search }: { id: strin
 function CableLegend({ content, mode }: { content: MapContent; mode: CableMode }) {
   const cables = content.elements.filter((e) => e.type === "link" && !e.color);
   const items = mode === "medium"
-    ? [...new Set(cables.map((c) => c.medium).filter(Boolean) as string[])].map((m) => [MEDIA[m]?.label ?? m, MEDIA[m]?.color] as const)
+    ? [...new Set(cables.map((c) => c.medium).filter(Boolean) as string[])].map((m) => [tr(MEDIA[m]?.label ?? m), MEDIA[m]?.color] as const)
     : mode === "vlan"
       ? [...new Set(cables.map((c) => c.vlan).filter((v) => v !== undefined) as number[])].sort((a, b) => a - b).map((v) => [`VLAN ${v}`, vlanColor(v)] as const)
       : [];
   if (!items.length) return null;
   return (
-    <ul className="karte-legend" aria-label="Legende Kabelfarben">
+    <ul className="karte-legend" aria-label={tr("Legende Kabelfarben")}>
       {items.map(([label, color]) => <li key={label}><span style={{ background: color }} aria-hidden="true" />{label}</li>)}
     </ul>
   );

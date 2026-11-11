@@ -15,3 +15,8 @@
 .hilfe-ticket strong { font-size: 1.05rem; }
 .hilfe-ticket p { margin: 0.2rem 0 0; }
 .hilfe-ticket .button { white-space: nowrap; text-decoration: none; }
+
+.hilfe-bar .spacer { flex: 1; }
+.hilfe-lang { font-size: 0.85rem; color: var(--muted); }
+.hilfe-lang button { background: none; border: 0; padding: 0; font: inherit; color: var(--muted); cursor: pointer; }
+.hilfe-lang button[aria-pressed="true"] { font-weight: 700; color: var(--fg); }

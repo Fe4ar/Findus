@@ -1,3 +1,4 @@
+import { tr, dateLocale } from "./i18n";
 export type Kind = "area" | "folder" | "page" | "file" | "map" | "link";
 
 export interface NodeSummary {
@@ -63,6 +64,7 @@ export interface Me {
   features?: string[]; // functions of the user's teams: wiki, faq, tasks, network, export
   teams?: { id: number; name: string; leader: boolean; can_write: boolean }[];
   theme?: Theme;
+  language?: string;
   must_change_password?: boolean; // the start admin has to set a new password first
   idle_logout_minutes?: number; // automatic sign-out after this long without activity, 0 = off
 }
@@ -73,7 +75,7 @@ export class ApiError extends Error {
   constructor(public status: number, public body: any) {
     // DRF field errors look like {"url": "..."} or {"url": ["..."]}: show the first message instead of just the status.
     const field = body && typeof body === "object" ? Object.values(body).flat().find((v) => typeof v === "string") : undefined;
-    super(body?.detail || (field as string | undefined) || `Fehler ${status}`);
+    super(body?.detail || (field as string | undefined) || tr("Fehler {status}", { status }));
   }
 }
 
@@ -102,7 +104,7 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
 }
 
 export function formatDate(iso: string) {
-  return new Date(iso).toLocaleString("de-DE", { dateStyle: "medium", timeStyle: "short" });
+  return new Date(iso).toLocaleString(dateLocale(), { dateStyle: "medium", timeStyle: "short" });
 }
 
 export function formatSize(bytes: number) {

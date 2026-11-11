@@ -182,6 +182,9 @@ class UserSettings(models.Model):
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, primary_key=True, related_name="findus_settings")
     theme = models.CharField(max_length=5, choices=THEMES, default="auto")
+    # Interface language the user chose (frontend translations: de, en); German is the default.
+    LANGUAGES = [("de", "Deutsch"), ("en", "English")]
+    language = models.CharField(max_length=5, choices=LANGUAGES, default="de")
     # Set by admins: file download, PDF/Markdown export and OnlyOffice download/print (see permissions.can_download).
     can_download = models.BooleanField(default=True)
     # Set when an admin deleted the user: the account is inactive and its personal area soft-deleted until the

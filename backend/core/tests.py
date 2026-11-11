@@ -2502,3 +2502,13 @@ def test_info_endpoint_version_and_changelog(admin, db):
     first = [l for l in r["changelog"].splitlines() if l.startswith("## [")][0]
     assert first.startswith(f"## [{VERSION}]"), first  # the newest changelog entry is the running version
     assert APIClient().get("/api/health").json()["version"] == VERSION
+
+
+def test_language_setting_per_user(client, db):
+    assert client.get("/api/auth/me").json()["language"] == "de"
+    assert client.put("/api/auth/settings", {"language": "en"}, format="json").json()["language"] == "en"
+    assert client.get("/api/auth/me").json()["language"] == "en" and client.get("/api/auth/me").json()["theme"] == "auto"
+    assert client.put("/api/auth/settings", {"language": "xx"}, format="json").status_code == 400
+    assert client.put("/api/auth/settings", {"theme": "dark"}, format="json").json()["language"] == "en"  # theme change keeps the language
+    assert client.put("/api/auth/settings", {}, format="json").status_code == 400
+    assert APIClient().put("/api/auth/settings", {"language": "en"}, format="json").status_code == 403

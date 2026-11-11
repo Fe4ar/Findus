@@ -5,6 +5,7 @@ import { ask, confirmDialog, notify } from "./Dialog";
 import { Icon } from "./Icons";
 import { ImportDialog } from "./Import";
 import { ShareDialog } from "./Share";
+import { tr, trs } from "./i18n";
 
 const EMOJI: Partial<Record<Kind, string>> = { file: "📎", map: "🗺️", link: "📐" };
 
@@ -103,13 +104,13 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
       await fn();
       onChanged();
     } catch (e) {
-      notify(e instanceof ApiError ? e.message : "Aktion fehlgeschlagen.");
+      notify(e instanceof ApiError ? e.message : tr("Aktion fehlgeschlagen."));
     }
   }
 
   async function create(kind: Kind, parent: NodeSummary | null) {
     if (kind === "link") {
-      const ref = await ask({ title: "Netzplan verknüpfen", label: "Link oder ID der .drawio-Datei aus dem Wiki", ok: "Verknüpfen" });
+      const ref = await ask({ title: tr("Netzplan verknüpfen"), label: tr("Link oder ID der .drawio-Datei aus dem Wiki"), ok: tr("Verknüpfen") });
       const target = ref?.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/)?.[0];
       if (!target) return;
       await run(async () => {
@@ -118,8 +119,8 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
       });
       return;
     }
-    const question = { area: "Neuer Bereich", folder: "Neuer Ordner", page: "Neue Seite", file: "", map: "Neue Karte" }[kind];
-    const title = await ask({ title: question, label: kind === "page" ? "Titel" : "Name", ok: "Anlegen", validate: (v) => (v.trim() ? null : "Bitte einen Namen eingeben.") });
+    const question = { area: tr("Neuer Bereich"), folder: tr("Neuer Ordner"), page: tr("Neue Seite"), file: "", map: tr("Neue Karte") }[kind];
+    const title = await ask({ title: question, label: kind === "page" ? tr("Titel") : tr("Name"), ok: tr("Anlegen"), validate: (v) => (v.trim() ? null : tr("Bitte einen Namen eingeben.")) });
     if (!title?.trim()) return;
     await run(async () => {
       const n = await api<NodeSummary>("/api/nodes", { method: "POST", body: { kind, title: title.trim(), parent: parent?.id, space } });
@@ -157,10 +158,10 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
             <Icon name={privateHead ? "lock" : "users"} size={16} /><span className="label-text">{head}</span>
           </button>
           {privateHead
-            ? <span className="vis-badge vis-private" title="Nur du siehst diesen Bereich">Nur du</span>
-            : vis && vis.kind !== "public" && <span className={`vis-badge vis-${vis.kind}`} title={vis.text}>{vis.badge}</span>}
+            ? <span className="vis-badge vis-private" title={tr("Nur du siehst diesen Bereich")}>{tr("Nur du")}</span>
+            : vis && vis.kind !== "public" && <span className={`vis-badge vis-${vis.kind}`} title={trs(vis.text)}>{trs(vis.badge)}</span>}
           {canCreateRoot && (
-            <button className="tree-plus" aria-label="Neu anlegen" aria-haspopup="menu" aria-expanded={!!plus} title="Neuer Ordner oder neue Seite"
+            <button className="tree-plus" aria-label={tr("Neu anlegen")} aria-haspopup="menu" aria-expanded={!!plus} title={tr("Neuer Ordner oder neue Seite")}
               onClick={(e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setMenu(null); setPlus(plus ? null : { x: r.left, y: r.bottom + 4 }); }}>+</button>
           )}
         </div>
@@ -168,16 +169,16 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
       <Branch parent={rootId ?? null} scope={scope} space={space} depth={0} selected={selected} onSelect={onSelect} version={version}
         onMenu={setMenu} onMove={move} onReorder={reorder} onOpenTab={onOpenTab} dots={!!head} />
       {canCreateRoot && !head && topKinds.map((k) => (
-        <button key={k} className="tree-add" onClick={() => create(k, rootNode)}>+ {NEW_LABEL[k]}</button>
+        <button key={k} className="tree-add" onClick={() => create(k, rootNode)}>+ {tr(NEW_LABEL[k])}</button>
       ))}
       {plus && (
         <ul className="menu" role="menu" style={{ left: plus.x, top: plus.y }} onClick={(e) => e.stopPropagation()}>
-          {topKinds.map((k) => <MenuItem key={k} label={NEW_LABEL[k]} onClick={() => { setPlus(null); create(k, rootNode); }} />)}
+          {topKinds.map((k) => <MenuItem key={k} label={tr(NEW_LABEL[k])} onClick={() => { setPlus(null); create(k, rootNode); }} />)}
         </ul>
       )}
       {incoming.length > 0 && (
-        <ul className="branch" role="group" aria-label={incomingKind === "user" ? "Für mich freigegeben" : "Von anderen Teams"}>
-          <li className="tree-heading" role="presentation">{incomingKind === "user" ? "Für mich freigegeben" : "Von anderen Teams"}</li>
+        <ul className="branch" role="group" aria-label={incomingKind === "user" ? tr("Für mich freigegeben") : tr("Von anderen Teams")}>
+          <li className="tree-heading" role="presentation">{incomingKind === "user" ? tr("Für mich freigegeben") : tr("Von anderen Teams")}</li>
           {incoming.map((n) => (
             <Item key={n.id} node={n} depth={0} selected={selected} onSelect={onSelect} version={version} onMenu={setMenu} onMove={move} onReorder={reorder} onOpenTab={onOpenTab} />
           ))}
@@ -186,37 +187,37 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
       {m && (
         <ul className="menu" role="menu" style={{ left: m.x, top: m.y }} onClick={(e) => e.stopPropagation()}>
           {!m.node && topKinds.map((k) => (
-            <MenuItem key={k} label={NEW_LABEL[k]} onClick={() => { setMenu(null); create(k, rootNode); }} />
+            <MenuItem key={k} label={tr(NEW_LABEL[k])} onClick={() => { setMenu(null); create(k, rootNode); }} />
           ))}
-          {m.node && onOpenTab && <MenuItem label="In neuem Tab öffnen" onClick={() => { setMenu(null); onOpenTab(m.node!.id); }} />}
+          {m.node && onOpenTab && <MenuItem label={tr("In neuem Tab öffnen")} onClick={() => { setMenu(null); onOpenTab(m.node!.id); }} />}
           {m.node && m.node.writable !== false && isContainer(m.node.kind) && CHILD_KINDS[space].map((k) => (
-            <MenuItem key={k} label={NEW_LABEL[k]} onClick={() => { setMenu(null); create(k, m.node); }} />
+            <MenuItem key={k} label={tr(NEW_LABEL[k])} onClick={() => { setMenu(null); create(k, m.node); }} />
           ))}
           {m.node && space === "wiki" && m.node.writable !== false && isContainer(m.node.kind) && (
-            <MenuItem label="Ordner importieren …" onClick={() => { setMenu(null); setImporting(m.node); }} />
+            <MenuItem label={tr("Ordner importieren …")} onClick={() => { setMenu(null); setImporting(m.node); }} />
           )}
           {m.node && space === "wiki" && m.node.can_share && (
-            <MenuItem label={incomingKind === "user" ? "Freigeben …" : "An anderes Team freigeben …"} onClick={() => { setMenu(null); setSharing(m.node); }} />
+            <MenuItem label={incomingKind === "user" ? tr("Freigeben …") : tr("An anderes Team freigeben …")} onClick={() => { setMenu(null); setSharing(m.node); }} />
           )}
           {m.node && space === "wiki" && canExport && isContainer(m.node.kind) && (
-            <MenuItem label="Ordner exportieren" onClick={() => { setMenu(null); exportFolder(m.node!); }} />
+            <MenuItem label={tr("Ordner exportieren")} onClick={() => { setMenu(null); exportFolder(m.node!); }} />
           )}
           {m.node && m.node.writable !== false && (m.up !== undefined || m.down !== undefined) && (
             <>
-              {m.up !== undefined && <MenuItem label="Nach oben" onClick={() => { setMenu(null); reorder(m.node!.id, m.up!); }} />}
-              {m.down !== undefined && <MenuItem label="Nach unten" onClick={() => { setMenu(null); reorder(m.node!.id, m.down!); }} />}
+              {m.up !== undefined && <MenuItem label={tr("Nach oben")} onClick={() => { setMenu(null); reorder(m.node!.id, m.up!); }} />}
+              {m.down !== undefined && <MenuItem label={tr("Nach unten")} onClick={() => { setMenu(null); reorder(m.node!.id, m.down!); }} />}
             </>
           )}
           {m.node && m.node.writable !== false && (
             <>
-              <MenuItem label="Umbenennen" onClick={async () => {
+              <MenuItem label={tr("Umbenennen")} onClick={async () => {
                 setMenu(null);
-                const title = await ask({ title: "Umbenennen", label: "Neuer Name", initial: m.node!.title, ok: "Umbenennen", validate: (v) => (v.trim() ? null : "Bitte einen Namen eingeben.") });
+                const title = await ask({ title: tr("Umbenennen"), label: tr("Neuer Name"), initial: m.node!.title, ok: tr("Umbenennen"), validate: (v) => (v.trim() ? null : tr("Bitte einen Namen eingeben.")) });
                 if (title?.trim()) run(() => api(`/api/nodes/${m.node!.id}`, { method: "PATCH", body: { title } }));
               }} />
-              <MenuItem label="Löschen" danger onClick={async () => {
+              <MenuItem label={tr("Löschen")} danger onClick={async () => {
                 setMenu(null);
-                if (await confirmDialog({ title: `„${m.node!.title}“ löschen?`, message: "Alles darunter wird mitgelöscht.", ok: "Löschen", danger: true }))
+                if (await confirmDialog({ title: tr("„{title}“ löschen?", { title: m.node!.title }), message: tr("Alles darunter wird mitgelöscht."), ok: tr("Löschen"), danger: true }))
                   run(async () => {
                     await api(`/api/nodes/${m.node!.id}`, { method: "DELETE" });
                     if (selected === m.node!.id) onSelect(null);
@@ -235,13 +236,13 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
 async function exportFolder(node: NodeSummary) {
   try {
     const res = await fetch(`/api/nodes/${node.id}/export-originals`, { credentials: "same-origin" });
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `Fehler ${res.status}`);
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || tr("Fehler {status}", { status: res.status }));
     const url = URL.createObjectURL(await res.blob());
     const a = document.createElement("a");
     a.href = url; a.download = `${node.title}.zip`; a.click();
     setTimeout(() => URL.revokeObjectURL(url), 10000);
   } catch (e) {
-    notify(e instanceof Error ? e.message : "Export fehlgeschlagen.");
+    notify(e instanceof Error ? e.message : tr("Export fehlgeschlagen."));
   }
 }
 
@@ -278,7 +279,7 @@ function Branch({ parent, space = "wiki", scope, ...rest }: BranchProps) {
     <ul className="branch" role={rest.depth === 0 ? "tree" : "group"}>
       {items.map((n, i) => {
         // Top level of the wiki: small-caps headings, "Dokumentation" for the normal areas and one per team area.
-        const group = (x: NodeSummary) => (x.team ? (/^team\b/i.test(x.team) ? x.team : `Team ${x.team}`) : x.vis?.kind === "public" ? "FAQ" : "Dokumentation");
+        const group = (x: NodeSummary) => (x.team ? (/^team\b/i.test(x.team) ? x.team : tr("Team {team}", { team: x.team })) : x.vis?.kind === "public" ? "FAQ" : tr("Dokumentation"));
         const head = !scope && rest.depth === 0 && space === "wiki" && n.kind === "area" && (i === 0 || group(items[i - 1]) !== group(n)) ? group(n) : null;
         return (
           <Fragment key={n.id}>
@@ -339,7 +340,7 @@ function Item({ node, depth, selected, onSelect, version, onMenu, onMove, onReor
           if (node.writable !== false || onOpenTab) onMenu({ x: e.clientX, y: e.clientY, node, up, down });
         }}
       >
-        <button className={`twisty${open ? " open" : ""}`} aria-label={open ? "Zuklappen" : "Aufklappen"} tabIndex={-1}
+        <button className={`twisty${open ? " open" : ""}`} aria-label={open ? tr("Zuklappen") : tr("Aufklappen")} tabIndex={-1}
           style={{ visibility: container && node.has_children ? "visible" : "hidden" }}
           onClick={() => toggle(!open)}>
           <Icon name="chevron" size={14} />
@@ -353,17 +354,17 @@ function Item({ node, depth, selected, onSelect, version, onMenu, onMove, onReor
           onMouseDown={(e) => { if (e.button === 1 && onOpenTab) e.preventDefault(); }} // no autoscroll on middle click
           onAuxClick={(e) => { if (e.button === 1 && onOpenTab) onOpenTab(node.id); }}>
           <KindIcon kind={node.kind} /><span className="label-text">{node.title}</span>
-          {node.status === "draft" && <span className="badge">Entwurf</span>}
-          {node.from && <small className="muted share-from">von {node.from}</small>}
+          {node.status === "draft" && <span className="badge">{tr("Entwurf")}</span>}
+          {node.from && <small className="muted share-from">{tr("von")}{" "}{node.from}</small>}
         </button>
         {node.shared && node.shared.length > 0 && (
-          <span className="share-mark" tabIndex={0} role="img" title={`Freigegeben an: ${node.shared.join(", ")}`}
-            aria-label={`Freigegeben an: ${node.shared.join(", ")}`}><Icon name="share" size={12} /></span>
+          <span className="share-mark" tabIndex={0} role="img" title={tr("Freigegeben an: {v}", { v: node.shared.join(", ") })}
+            aria-label={tr("Freigegeben an: {v}", { v: node.shared.join(", ") })}><Icon name="share" size={12} /></span>
         )}
         {node.vis && node.vis.kind !== "public" && !node.shared?.length && (depth === 0 && !dots
-          ? <span className={`vis-badge vis-${node.vis.kind}`} title={node.vis.text}>{node.vis.badge}</span>
+          ? <span className={`vis-badge vis-${node.vis.kind}`} title={trs(node.vis.text)}>{trs(node.vis.badge)}</span>
           // Below the top level only a dot with a tooltip, so the folder name keeps its room.
-          : <span className={`vis-dot vis-${node.vis.kind}`} title={node.vis.text} role="img" aria-label={node.vis.text} />)}
+          : <span className={`vis-dot vis-${node.vis.kind}`} title={trs(node.vis.text)} role="img" aria-label={trs(node.vis.text)} />)}
       </div>
       {container && open && (
         <Branch parent={node.id} depth={depth + 1} selected={selected} onSelect={onSelect} version={version}

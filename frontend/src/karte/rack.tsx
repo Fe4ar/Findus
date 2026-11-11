@@ -1,4 +1,5 @@
 import { El, Box, UH, RACK_HEAD, boxOf, kindOf } from "./model";
+import { tr } from "../i18n";
 
 /** Rack device catalog: default height in U and a plain front graphic. Elements keep type "device"/"switch", kind picks the entry. */
 export const RACK_TYPES: Record<string, { label: string; h: number; icon: string }> = {

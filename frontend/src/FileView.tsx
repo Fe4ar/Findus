@@ -4,6 +4,7 @@ import { OnlyOffice, isOffice } from "./OnlyOffice";
 import { DrawioView } from "./Drawio";
 import { ask, notify } from "./Dialog";
 import { Collabora, ModeSwitch, useCollabora } from "./Office";
+import { tr } from "./i18n";
 
 /** attachment = pasted image / embedded document: the file belongs to a page and stays out of the tree. */
 export async function uploadFile(parent: string, file: File, attachment = false) {
@@ -19,7 +20,7 @@ function TextPreview({ url }: { url: string }) {
   useEffect(() => {
     fetch(url, { credentials: "same-origin" }).then((r) => r.text()).then((t) => setText(t.slice(0, 500_000)));
   }, [url]);
-  return text === null ? <p className="muted">Lade …</p> : <pre className="text-preview">{text}</pre>;
+  return text === null ? <p className="muted">{tr("Lade …")}</p> : <pre className="text-preview">{text}</pre>;
 }
 
 export function FileView({ node, onChanged }: { node: NodeDetail; onChanged: (n: NodeDetail) => void }) {
@@ -27,7 +28,7 @@ export function FileView({ node, onChanged }: { node: NodeDetail; onChanged: (n:
   const [busy, setBusy] = useState(false);
   const collabora = useCollabora();
   const v = node.versions?.[0];
-  if (!v) return <p className="muted">Keine Datei vorhanden.</p>;
+  if (!v) return <p className="muted">{tr("Keine Datei vorhanden.")}</p>;
 
   const name = v.original_name.toLowerCase();
   let preview;
@@ -40,7 +41,7 @@ export function FileView({ node, onChanged }: { node: NodeDetail; onChanged: (n:
   else if (v.mime === "application/pdf") preview = <iframe className="pdf" src={v.url} title={v.original_name} />;
   else if (v.mime.startsWith("image/") && v.mime !== "image/svg+xml") preview = <img className="image-preview" src={v.url} alt={v.original_name} />;
   else if (v.mime.startsWith("text/") || /\.(md|txt|log|csv|json|ya?ml|conf|ini|sh|py)$/.test(name)) preview = <TextPreview url={v.url} />;
-  else preview = <p className="muted">Für diesen Dateityp gibt es keine Vorschau.</p>;
+  else preview = <p className="muted">{tr("Für diesen Dateityp gibt es keine Vorschau.")}</p>;
 
   return (
     <section>
@@ -54,15 +55,15 @@ export function FileView({ node, onChanged }: { node: NodeDetail; onChanged: (n:
               if (m === "view" && collabora) setTimeout(() => api<NodeDetail>(`/api/nodes/${node.id}`).then(onChanged), 1500);
             }} />
           )}
-          <a className="button" href={`${v.url}?download=1`}>Herunterladen</a>
+          <a className="button" href={`${v.url}?download=1`}>{tr("Herunterladen")}</a>
           {node.permissions.write && (
             <label className="button">
-              {busy ? "Lade hoch …" : "Neue Version hochladen"}
+              {busy ? tr("Lade hoch …") : tr("Neue Version hochladen")}
               <input type="file" hidden disabled={busy} onChange={async (e) => {
                 const file = e.target.files?.[0];
                 e.target.value = "";
                 if (!file) return;
-                const comment = await ask({ title: "Neue Version hochladen", label: "Kommentar (optional)", ok: "Hochladen" });
+                const comment = await ask({ title: tr("Neue Version hochladen"), label: tr("Kommentar (optional)"), ok: tr("Hochladen") });
                 if (comment === null) return;
                 const form = new FormData();
                 form.append("file", file);
@@ -71,7 +72,7 @@ export function FileView({ node, onChanged }: { node: NodeDetail; onChanged: (n:
                 try {
                   onChanged(await api(`/api/files/${node.id}/versions`, { method: "POST", body: form }));
                 } catch (err) {
-                  notify(err instanceof ApiError ? err.message : "Upload fehlgeschlagen.");
+                  notify(err instanceof ApiError ? err.message : tr("Upload fehlgeschlagen."));
                 }
                 setBusy(false);
               }} />

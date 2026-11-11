@@ -2,6 +2,7 @@ import { createContext, MouseEvent as ReactMouseEvent, useContext, useEffect, us
 import { api, Kind, NodeDetail } from "./api";
 import { extensions } from "./extensions";
 import { Icon } from "./Icons";
+import { tr } from "./i18n";
 
 /** One open view in the in-app tab bar; its path is the URL it shows (e.g. /n/<id>, /netzwerk/<id>, /). */
 export interface DocTab {
@@ -68,19 +69,19 @@ function useTabLabel(path: string, version: number) {
     const id = nodeIdOf(path);
     if (!id) {
       const p = path.split("?")[0];
-      setLabel(p === "/" ? { icon: "🏠", title: "Übersicht" } : p.startsWith("/netzwerk") ? { icon: "🗺️", title: "Netzwerk" }
-        : p.startsWith("/verwaltung") ? { icon: "gear", title: "Verwaltung" }
-        : p.startsWith("/aufgaben") ? { icon: "✅", title: "Aufgaben" }
-        : p.startsWith("/anwender") ? { icon: "❓", title: "Alle Anwender" }
+      setLabel(p === "/" ? { icon: "🏠", title: tr("Übersicht") } : p.startsWith("/netzwerk") ? { icon: "🗺️", title: tr("Netzwerk") }
+        : p.startsWith("/verwaltung") ? { icon: "gear", title: tr("Verwaltung") }
+        : p.startsWith("/aufgaben") ? { icon: "✅", title: tr("Aufgaben") }
+        : p.startsWith("/anwender") ? { icon: "❓", title: tr("Alle Anwender") }
         : extensions.find((e) => p.startsWith(e.path)) ? { icon: "", title: extensions.find((e) => p.startsWith(e.path))!.label }
-        : { icon: "📚", title: "Wiki" });
+        : { icon: "📚", title: tr("Wiki") });
       return;
     }
     const key = `${id}:${version}`; // a rename bumps the tree version, so titles follow
     if (!titles.has(key)) {
       titles.set(key, api<NodeDetail>(`/api/nodes/${id}`)
         .then((n) => ({ icon: ICONS[n.kind] ?? "📄", title: n.title }))
-        .catch(() => ({ icon: "⚠️", title: "Nicht gefunden" })));
+        .catch(() => ({ icon: "⚠️", title: tr("Nicht gefunden") })));
     }
     let alive = true;
     titles.get(key)!.then((l) => alive && setLabel(l));
@@ -123,21 +124,21 @@ export function TabBar(p: BarProps) {
   }, []);
   const tab = menu && p.state.tabs.find((t) => t.id === menu.id);
   return (
-    <div className={`tabbar${p.state.tabs.length === 1 ? " single" : ""}`} role="tablist" aria-label="Offene Tabs">
+    <div className={`tabbar${p.state.tabs.length === 1 ? " single" : ""}`} role="tablist" aria-label={tr("Offene Tabs")}>
       {p.state.tabs.map((t) => (
         <TabButton key={t.id} tab={t} {...p} onMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, id: t.id }); }} />
       ))}
-      <button className="tab-new" title="Neuer Tab (Übersicht)" aria-label="Neuer Tab" onClick={p.onNew}>+</button>
+      <button className="tab-new" title={tr("Neuer Tab (Übersicht)")} aria-label={tr("Neuer Tab")} onClick={p.onNew}>+</button>
       {menu && tab && (
         <ul className="menu" role="menu" style={{ left: menu.x, top: menu.y }} onClick={(e) => e.stopPropagation()}>
-          <li role="menuitem"><button onClick={() => { setMenu(null); p.onPin(tab.id); }}>{tab.pinned ? "Lösen" : "Anheften"}</button></li>
+          <li role="menuitem"><button onClick={() => { setMenu(null); p.onPin(tab.id); }}>{tab.pinned ? tr("Lösen") : tr("Anheften")}</button></li>
           {p.state.split === tab.id || (p.state.split && p.state.active === tab.id) ? (
-            <li role="menuitem"><button onClick={() => { setMenu(null); p.onSplit(null); }}>Geteilte Ansicht beenden</button></li>
+            <li role="menuitem"><button onClick={() => { setMenu(null); p.onSplit(null); }}>{tr("Geteilte Ansicht beenden")}</button></li>
           ) : p.state.active !== tab.id && (
-            <li role="menuitem"><button onClick={() => { setMenu(null); p.onSplit(tab.id); }}>Rechts daneben anzeigen</button></li>
+            <li role="menuitem"><button onClick={() => { setMenu(null); p.onSplit(tab.id); }}>{tr("Rechts daneben anzeigen")}</button></li>
           )}
-          <li role="menuitem"><button onClick={() => { setMenu(null); p.onCloseOthers(tab.id); }}>Andere schließen</button></li>
-          {!tab.pinned && <li role="menuitem"><button className="danger" onClick={() => { setMenu(null); p.onClose(tab.id); }}>Schließen</button></li>}
+          <li role="menuitem"><button onClick={() => { setMenu(null); p.onCloseOthers(tab.id); }}>{tr("Andere schließen")}</button></li>
+          {!tab.pinned && <li role="menuitem"><button className="danger" onClick={() => { setMenu(null); p.onClose(tab.id); }}>{tr("Schließen")}</button></li>}
         </ul>
       )}
     </div>
@@ -164,9 +165,9 @@ function TabButton({ tab, state, dirty, version, onActivate, onClose, onReorder,
       <button className="doctab-label" onClick={() => onActivate(tab.id)}>
         <span aria-hidden="true">{tab.pinned ? "📌" : icon === "gear" ? <Icon name="gear" size={14} /> : icon}</span>
         {!tab.pinned && <span className="doctab-title">{title}</span>}
-        {dirty[tab.id] && <span className="doctab-dirty" title="Ungespeicherte Änderungen" aria-label="ungespeichert">●</span>}
+        {dirty[tab.id] && <span className="doctab-dirty" title={tr("Ungespeicherte Änderungen")} aria-label="ungespeichert">●</span>}
       </button>
-      {!tab.pinned && <button className="doctab-close" aria-label={`${title} schließen`} onClick={() => onClose(tab.id)}>×</button>}
+      {!tab.pinned && <button className="doctab-close" aria-label={tr("{title} schließen", { title })} onClick={() => onClose(tab.id)}>×</button>}
     </div>
   );
 }

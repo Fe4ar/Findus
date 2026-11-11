@@ -1,6 +1,7 @@
 import { PointerEvent as ReactPointerEvent, useMemo, useRef, useState } from "react";
 import { El, MapContent, Box, GRID, UH, RACK_HEAD, LABEL, snap, boxOf, portPoint, anchor, hasPorts, kindOf, CableMode, cableColor, MEDIA } from "./model";
 import { RACK_TYPES, RackFront, SlotHint, rackTarget, Face, onFace } from "./rack";
+import { tr } from "../i18n";
 
 type Target = ReturnType<typeof rackTarget>;
 export const heightOf = (e: El) => e.rack?.h ?? RACK_TYPES[kindOf(e) ?? ""]?.h ?? 1;
@@ -81,7 +82,7 @@ export function Canvas({ content, status, editing, selected, onSelect, onChange,
   return (
     <svg ref={svg} className={`karte-canvas${editing ? " editing" : ""}`} viewBox={`0 0 ${width} ${height}`}
       style={{ width: `${zoom * 100}%`, minWidth: 700 * zoom }}
-      role="img" aria-label={`Karte mit ${shapes.length} Elementen und ${links.length} Kabeln`}
+      role="img" aria-label={tr("Karte mit {length} Elementen und {length2} Kabeln", { length: shapes.length, length2: links.length })}
       onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}
       onPointerDown={(ev) => {
         if (editing) { onSelect(null); return; }
@@ -142,7 +143,7 @@ export function Canvas({ content, status, editing, selected, onSelect, onChange,
         const host = e.ip || e.hostname;
         return (
           <g key={e.id} {...events} className={`${cls(e)}${ghost?.id === e.id ? " karte-ghost" : ""}${e.rack && byId[e.rack.id] && !onFace(e, face) ? " karte-otherside" : ""}`}>
-            <title>{`${e.name ?? ""}${host ? ` (${host})` : ""}: ${LABEL[String(online) as keyof typeof LABEL]}`}</title>
+            <title>{`${e.name ?? ""}${host ? ` (${host})` : ""}: ${tr(LABEL[String(online) as keyof typeof LABEL])}`}</title>
             <rect className="karte-dev" x={b.x} y={b.y} width={b.w} height={b.h} rx={4}
               style={e.color ? { stroke: e.color, fill: e.color, fillOpacity: 0.15 } : undefined} />
             <RackFront e={e} b={b} />
@@ -151,7 +152,7 @@ export function Canvas({ content, status, editing, selected, onSelect, onChange,
             {e.check && <circle className={`karte-dot ${online === undefined ? "unknown" : online ? "up" : "down"}`} cx={b.x + b.w - 12} cy={b.y + 12} r={6} />}
             {hasPorts(e) && Array.from({ length: e.ports ?? 0 }, (_, i) => {
               const p = portPoint(b, e.ports!, i + 1);
-              return <rect key={i} className="karte-port-box" x={p.x - 3} y={p.y - 3} width={6} height={6}><title>{`Port ${i + 1}`}</title></rect>;
+              return <rect key={i} className="karte-port-box" x={p.x - 3} y={p.y - 3} width={6} height={6}><title>{tr("Port {v}", { v: i + 1 })}</title></rect>;
             })}
             {editing && sel && !(e.rack && byId[e.rack.id]) && <ResizeHandle b={b} onDown={(ev) => startDrag(ev, e, "size")} />}
           </g>
@@ -174,7 +175,7 @@ export function Canvas({ content, status, editing, selected, onSelect, onChange,
         }
         return (
           <g key={e.id} onPointerDown={(ev) => { ev.stopPropagation(); onSelect(e.id, ev.shiftKey); }}>
-            <title>{`Kabel ${fromEl.name ?? ""} → ${toEl.name ?? ""}${e.label ? `: ${e.label}` : ""}${e.medium ? ` · ${MEDIA[e.medium]?.label}` : ""}${e.vlan !== undefined ? ` · VLAN ${e.vlan}` : ""}`}</title>
+            <title>{tr("Kabel {v} → {v2}{v3}{v4}{v5}", { v: fromEl.name ?? "", v2: toEl.name ?? "", v3: e.label ? `: ${e.label}` : "", v4: e.medium ? ` · ${MEDIA[e.medium]?.label}` : "", v5: e.vlan !== undefined ? ` · VLAN ${e.vlan}` : "" })}</title>
             <path className="karte-hit" d={d} />
             <path className={`karte-cable${selected.includes(e.id) ? " selected" : ""}`} d={d} style={cableColor(e, cableMode) ? { stroke: cableColor(e, cableMode) } : undefined} />
             {e.label && <text className="karte-port" x={mid.x + 4} y={mid.y - 4}>{e.label}</text>}
@@ -186,5 +187,5 @@ export function Canvas({ content, status, editing, selected, onSelect, onChange,
 }
 
 export function ResizeHandle({ b, onDown }: { b: Box; onDown: (ev: ReactPointerEvent) => void }) {
-  return <rect className="karte-handle" x={b.x + b.w - 6} y={b.y + b.h - 6} width={12} height={12} onPointerDown={onDown}><title>Größe ändern</title></rect>;
+  return <rect className="karte-handle" x={b.x + b.w - 6} y={b.y + b.h - 6} width={12} height={12} onPointerDown={onDown}><title>{tr("Größe ändern")}</title></rect>;
 }

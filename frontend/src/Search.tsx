@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { api, Kind } from "./api";
 import { navigate } from "./Karte";
 import { wantsNewTab } from "./Tabs";
+import { tr } from "./i18n";
 
 interface Hit {
   id: string;
@@ -49,7 +50,7 @@ export function Search({ onSelect, onOpenTab, teams = [], hasPrivate = false }: 
     return () => { stale = true; clearTimeout(t); };
   }, [q, scopes, exact]); // eslint-disable-line react-hooks/exhaustive-deps
   const toggle = (id: string) => setScopes((cur) => (id === "all" ? [] : cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
-  const chips = [{ id: "all", label: "Alles" }, ...(hasPrivate ? [{ id: "private", label: "Privat" }] : []), ...teams.map((t) => ({ id: `team:${t.id}`, label: t.name }))];
+  const chips = [{ id: "all", label: tr("Alles") }, ...(hasPrivate ? [{ id: "private", label: tr("Privat") }] : []), ...teams.map((t) => ({ id: `team:${t.id}`, label: t.name }))];
 
   useEffect(() => {
     const close = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setHits(null); };
@@ -69,7 +70,7 @@ export function Search({ onSelect, onOpenTab, teams = [], hasPrivate = false }: 
 
   return (
     <div className="search" ref={box}>
-      <input type="search" placeholder="Suchen …" aria-label="Volltextsuche" value={q} role="combobox"
+      <input type="search" placeholder={tr("Suchen …")} aria-label={tr("Volltextsuche")} value={q} role="combobox"
         aria-expanded={!!hits} aria-controls="search-results"
         aria-activedescendant={hits?.length ? `search-hit-${active}` : undefined}
         onChange={(e) => setQ(e.target.value)}
@@ -85,7 +86,7 @@ export function Search({ onSelect, onOpenTab, teams = [], hasPrivate = false }: 
         <div className="search-pop">
           <div className="search-chips">
             {chips.length > 2 && (
-              <span className="search-scopes" role="group" aria-label="Suche einschränken">
+              <span className="search-scopes" role="group" aria-label={tr("Suche einschränken")}>
                 {chips.map((c) => (
                   <button key={c.id} type="button" className={`chip${(c.id === "all" ? !scopes.length : scopes.includes(c.id)) ? " on" : ""}`}
                     aria-pressed={c.id === "all" ? !scopes.length : scopes.includes(c.id)}
@@ -93,20 +94,20 @@ export function Search({ onSelect, onOpenTab, teams = [], hasPrivate = false }: 
                 ))}
               </span>
             )}
-            <span className="search-mode" role="group" aria-label="Trefferart">
-              <button type="button" aria-pressed={!exact} title="Auch Wortformen und Wortanfänge" onMouseDown={(e) => e.preventDefault()} onClick={() => setExact(false)}>Enthält</button>
-              <button type="button" aria-pressed={exact} title="Nur genau diese Wörter; „in Anführungszeichen“ = Phrase" onMouseDown={(e) => e.preventDefault()} onClick={() => setExact(true)}>Exakt</button>
+            <span className="search-mode" role="group" aria-label={tr("Trefferart")}>
+              <button type="button" aria-pressed={!exact} title={tr("Auch Wortformen und Wortanfänge")} onMouseDown={(e) => e.preventDefault()} onClick={() => setExact(false)}>{tr("Enthält")}</button>
+              <button type="button" aria-pressed={exact} title={tr("Nur genau diese Wörter; „in Anführungszeichen“ = Phrase")} onMouseDown={(e) => e.preventDefault()} onClick={() => setExact(true)}>{tr("Exakt")}</button>
             </span>
           </div>
-          <ul id="search-results" className="search-results" role="listbox" aria-label="Suchergebnisse">
-            {hits.length === 0 && <li className="muted">Keine Treffer.</li>}
+          <ul id="search-results" className="search-results" role="listbox" aria-label={tr("Suchergebnisse")}>
+            {hits.length === 0 && <li className="muted">{tr("Keine Treffer.")}</li>}
             {hits.map((h, i) => (
               <Fragment key={h.id}>
                 {(i === 0 || hits[i - 1].group !== h.group) && h.group && <li className="search-group" role="presentation">{h.group}</li>}
                 <li id={`search-hit-${i}`} role="option" aria-selected={i === active}
                   onMouseEnter={() => setActive(i)} onMouseDown={(e) => { e.preventDefault(); go(h, wantsNewTab(e)); }}>
                   <strong><Title text={h.title} q={q} exact={exact} /></strong>
-                  <span className="muted"> · {KIND_LABEL[h.kind] ?? h.kind}{h.path && ` · ${h.path}`}</span>
+                  <span className="muted"> · {tr(KIND_LABEL[h.kind] ?? h.kind)}{h.path && ` · ${h.path}`}</span>
                   {h.snippet && <div className="snippet"><Snippet text={h.snippet} /></div>}
                 </li>
               </Fragment>

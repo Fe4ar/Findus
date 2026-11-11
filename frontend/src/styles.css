@@ -1056,3 +1056,8 @@ body.side-dragging { cursor: col-resize; user-select: none; }
 .changelog-release h3 { margin-top: 0; } .changelog-release h4 { margin: var(--space-3) 0 var(--space-1); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
 .changelog-release ul { margin: 0; padding-left: 1.2rem; } .changelog-release li { margin: 0.25rem 0; }
 @media (max-width: 760px) { .brand-version { display: none; } .login h1 .brand-version { display: inline; } }
+
+/* v0.8.12: language choice */
+.login-lang { margin: var(--space-3) 0 0; text-align: center; font-size: 0.85rem; color: var(--muted); }
+.login-lang button[aria-pressed="true"] { font-weight: 700; color: var(--fg); }
+.lang-switch { margin-top: var(--space-1); }

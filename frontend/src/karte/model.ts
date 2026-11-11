@@ -1,3 +1,4 @@
+import { tr } from "../i18n";
 export type ElType = "rack" | "device" | "switch" | "text" | "link";
 
 export interface El {

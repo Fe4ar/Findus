@@ -598,7 +598,7 @@ def audit_log(request):
 def clear_audit(request):
     """Admin: delete the whole log; only one entry remains, saying who did it. Needs {"confirm": "PROTOKOLL LÖSCHEN"} in the body."""
     need_admin(request)
-    if request.data.get("confirm") != AUDIT_CLEAR_PHRASE:
+    if request.data.get("confirm") not in (AUDIT_CLEAR_PHRASE, "DELETE LOG"):  # the English interface asks for the English phrase
         raise ValidationError({"detail": f"Zur Bestätigung „{AUDIT_CLEAR_PHRASE}“ senden."})
     with transaction.atomic():
         count, _ = AuditLog.objects.all().delete()

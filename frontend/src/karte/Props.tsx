@@ -1,6 +1,7 @@
 import { El, PageRef, UUID_RE, MapContent, TYPE_LABEL, hasPorts, kindOf, IP_RE, MAC_RE, MEDIA } from "./model";
 import { RACK_TYPES, firstFree, SIDES, sideOf } from "./rack";
 import { notify } from "../Dialog";
+import { tr } from "../i18n";
 
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="karte-field">{label}{children}</label>;
@@ -35,109 +36,109 @@ export function Props({ el, content, pages, onChange, onDelete }: {
     const target = content.elements.find((e) => e.id === el[side]);
     return (
       <>
-        <Field label={side === "from" ? "Von" : "Nach"}>
+        <Field label={side === "from" ? tr("Von") : tr("Nach")}>
           <select value={el[side] ?? ""} onChange={(ev) => onChange({ [side]: ev.target.value, [`${side}_port`]: undefined })}>
-            <option value="">– wählen –</option>
-            {others.map((o) => <option key={o.id} value={o.id}>{o.name || TYPE_LABEL[o.type]}</option>)}
+            <option value="">{tr("– wählen –")}</option>
+            {others.map((o) => <option key={o.id} value={o.id}>{o.name || tr(TYPE_LABEL[o.type])}</option>)}
           </select>
         </Field>
-        {target && hasPorts(target) && num(`${side}_port` as keyof El, "Port", 1, target.ports ?? 1)}
+        {target && hasPorts(target) && num(`${side}_port` as keyof El, tr("Port"), 1, target.ports ?? 1)}
       </>
     );
   };
   return (
     <div className="karte-props">
-      <h3>{TYPE_LABEL[el.type]}</h3>
+      <h3>{tr(TYPE_LABEL[el.type])}</h3>
       {el.type === "link" ? (
         <>
           {endpoint("from")}
           {endpoint("to")}
-          {text("label", "Beschriftung", "z. B. Port 24 ↔ LAN 1")}
+          {text("label", tr("Beschriftung"), tr("z. B. Port 24 ↔ LAN 1"))}
           <div className="karte-row">
-            <Field label="Medium">
+            <Field label={tr("Medium")}>
               <select value={el.medium ?? ""} onChange={(ev) => onChange({ medium: ev.target.value || undefined })}>
                 <option value="">–</option>
-                {Object.entries(MEDIA).map(([k, m]) => <option key={k} value={k}>{m.label}</option>)}
+                {Object.entries(MEDIA).map(([k, m]) => <option key={k} value={k}>{tr(m.label)}</option>)}
               </select>
             </Field>
             {num("vlan", "VLAN", 1, 4094)}
           </div>
         </>
       ) : el.type === "text" ? (
-        <Field label="Text">
+        <Field label={tr("Text")}>
           <textarea rows={4} value={el.text ?? ""} onChange={(ev) => onChange({ text: ev.target.value })} />
         </Field>
       ) : (
         <>
-          {text("name", "Name")}
+          {text("name", tr("Name"))}
           {el.type !== "rack" && (
-            <Field label="Gerätetyp">
+            <Field label={tr("Gerätetyp")}>
               <select value={kindOf(el) ?? ""} onChange={(ev) => {
                 const t = RACK_TYPES[ev.target.value];
                 onChange({ kind: ev.target.value || undefined, ...(t && !el.icon ? { icon: t.icon || undefined } : {}),
                   ...(t && el.rack ? { rack: { ...el.rack, h: t.h } } : {}),
                   ...((ev.target.value === "switch" || ev.target.value === "patch") && !el.ports ? { ports: 24 } : {}) });
               }}>
-                <option value="">– allgemein –</option>
-                {Object.entries(RACK_TYPES).map(([k, t]) => <option key={k} value={k}>{t.label}</option>)}
+                <option value="">{tr("– allgemein –")}</option>
+                {Object.entries(RACK_TYPES).map(([k, t]) => <option key={k} value={k}>{tr(t.label)}</option>)}
               </select>
             </Field>
           )}
-          {el.type !== "rack" && text("icon", "Symbol (Emoji)", "🖥️")}
-          {el.type === "rack" && num("units", "Höheneinheiten", 1, 52)}
-          <Field label="Handbuch/Seite">
+          {el.type !== "rack" && text("icon", tr("Symbol (Emoji)"), "🖥️")}
+          {el.type === "rack" && num("units", tr("Höheneinheiten"), 1, 52)}
+          <Field label={tr("Handbuch/Seite")}>
             <select value={el.page ?? ""} onChange={(ev) => onChange({ page: ev.target.value || undefined })}>
-              <option value="">– keine –</option>
-              {el.page && !pages.some((p) => p.id === el.page) && <option value={el.page}>(Seite nicht gefunden)</option>}
+              <option value="">{tr("– keine –")}</option>
+              {el.page && !pages.some((p) => p.id === el.page) && <option value={el.page}>{tr("(Seite nicht gefunden)")}</option>}
               {pages.map((p) => <option key={p.id} value={p.id}>{p.path ? `${p.path} / ` : ""}{p.title}</option>)}
             </select>
           </Field>
-          <Field label="Schaubild (draw.io-Datei, Link oder ID)">
+          <Field label={tr("Schaubild (draw.io-Datei, Link oder ID)")}>
             <input value={el.diagram ?? ""} placeholder="https://…/n/…"
               onChange={(ev) => onChange({ diagram: ev.target.value.match(UUID_RE)?.[0] ?? (ev.target.value || undefined) })} />
           </Field>
-          {hasPorts(el) && num("ports", "Ports", 1, 52)}
+          {hasPorts(el) && num("ports", tr("Ports"), 1, 52)}
           {el.type !== "rack" && (
             <>
-              {text("ip", "IP-Adresse", "192.0.2.10", IP_RE, "Keine gültige IPv4/IPv6-Adresse.")}
-              {text("hostname", "Hostname", "server1.example.org")}
-              {text("mac", "MAC-Adresse", "aa:bb:cc:dd:ee:ff", MAC_RE, "Format: aa:bb:cc:dd:ee:ff")}
+              {text("ip", tr("IP-Adresse"), "192.0.2.10", IP_RE, tr("Keine gültige IPv4/IPv6-Adresse."))}
+              {text("hostname", tr("Hostname"), "server1.example.org")}
+              {text("mac", tr("MAC-Adresse"), "aa:bb:cc:dd:ee:ff", MAC_RE, tr("Format: aa:bb:cc:dd:ee:ff"))}
               <div className="karte-row">
-                {text("model", "Modell")}
-                {text("serial", "Seriennummer")}
+                {text("model", tr("Modell"))}
+                {text("serial", tr("Seriennummer"))}
               </div>
               <div className="karte-row">
-                {num("watt", kindOf(el) === "ups" || kindOf(el) === "pdu" ? "Kapazität (W)" : "Leistung (W)", 0, 100000)}
-                {num("weight", "Gewicht (kg)", 0, 2000)}
+                {num("watt", kindOf(el) === "ups" || kindOf(el) === "pdu" ? tr("Kapazität (W)") : tr("Leistung (W)"), 0, 100000)}
+                {num("weight", tr("Gewicht (kg)"), 0, 2000)}
               </div>
-              {text("check", "Live-Check", "https://… oder tcp://host:port")}
-              <Field label="Im Rack">
+              {text("check", tr("Live-Check"), tr("https://… oder tcp://host:port"))}
+              <Field label={tr("Im Rack")}>
                 <select value={el.rack?.id ?? ""} onChange={(ev) => {
                   const rack = racks.find((r) => r.id === ev.target.value);
                   if (!rack) return onChange({ rack: undefined });
                   const h = el.rack?.h ?? RACK_TYPES[kindOf(el) ?? ""]?.h ?? 1;
                   const u = firstFree(content.elements, rack, h, el);
-                  if (u === null) return notify(`In „${rack.name || "Rack"}“ sind keine ${h} HE frei.`);
+                  if (u === null) return notify(tr("In „{v}“ sind keine {h} HE frei.", { v: rack.name || "Rack", h }));
                   onChange({ rack: { id: rack.id, u, h } });
                 }}>
-                  <option value="">– frei platziert –</option>
-                  {racks.map((r) => <option key={r.id} value={r.id}>{r.name || "Rack"}</option>)}
+                  <option value="">{tr("– frei platziert –")}</option>
+                  {racks.map((r) => <option key={r.id} value={r.id}>{r.name || tr("Rack")}</option>)}
                 </select>
               </Field>
               {el.rack && (
-                <Field label="Einbauseite">
+                <Field label={tr("Einbauseite")}>
                   <select value={sideOf(el)} onChange={(ev) => onChange({ side: ev.target.value as El["side"] })}>
-                    {Object.entries(SIDES).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                    {Object.entries(SIDES).map(([k, l]) => <option key={k} value={k}>{tr(l)}</option>)}
                   </select>
                 </Field>
               )}
               {el.rack && (
                 <div className="karte-row">
-                  <Field label="Unterste HE">
+                  <Field label={tr("Unterste HE")}>
                     <input type="number" min={1} max={52} value={el.rack.u}
                       onChange={(ev) => onChange({ rack: { ...el.rack!, u: Math.max(1, Number(ev.target.value) || 1) } })} />
                   </Field>
-                  <Field label="Höhe (HE)">
+                  <Field label={tr("Höhe (HE)")}>
                     <input type="number" min={1} max={52} value={el.rack.h}
                       onChange={(ev) => onChange({ rack: { ...el.rack!, h: Math.max(1, Number(ev.target.value) || 1) } })} />
                   </Field>
@@ -148,17 +149,17 @@ export function Props({ el, content, pages, onChange, onDelete }: {
         </>
       )}
       {el.type !== "link" && el.type !== "text" && (
-        <Field label="Notizen">
+        <Field label={tr("Notizen")}>
           <textarea rows={3} value={el.notes ?? ""} onChange={(ev) => onChange({ notes: ev.target.value || undefined })} />
         </Field>
       )}
-      <Field label="Farbe">
+      <Field label={tr("Farbe")}>
         <div className="karte-row">
           <input type="color" value={el.color || "#2563eb"} onChange={(ev) => onChange({ color: ev.target.value })} />
-          {el.color && <button type="button" onClick={() => onChange({ color: "" })}>Standard</button>}
+          {el.color && <button type="button" onClick={() => onChange({ color: "" })}>{tr("Standard")}</button>}
         </div>
       </Field>
-      <button type="button" className="danger" onClick={onDelete}>Element entfernen</button>
+      <button type="button" className="danger" onClick={onDelete}>{tr("Element entfernen")}</button>
     </div>
   );
 }

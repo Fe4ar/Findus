@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { tr } from "./i18n";
 
 // Replacements for window.prompt/confirm/alert in the design system. One <DialogHost /> in main.tsx renders them;
 // the native <dialog> brings focus trapping, Esc and the backdrop.
@@ -127,10 +128,10 @@ function Modal({ req, onDone }: { req: Request; onDone: (v: string | boolean | n
         )}
         {error && <p className="modal-error" role="alert">{error}</p>}
         <div className="actions">
-          <button type="button" onClick={() => onDone(cancel)}>Abbrechen</button>
+          <button type="button" onClick={() => onDone(cancel)}>{tr("Abbrechen")}</button>
           <button type="submit" autoFocus={req.kind === "confirm"}
             className={req.kind === "confirm" && req.opts.danger ? "danger" : "primary"}>
-            {ok ?? (req.kind === "ask" ? "OK" : "Bestätigen")}
+            {ok ?? (req.kind === "ask" ? tr("OK") : tr("Bestätigen"))}
           </button>
         </div>
       </form>

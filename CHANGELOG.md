@@ -2,6 +2,12 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.8.12] - 2026-11-11
+
+### Added
+- The interface is available in German and English. Every user chooses the language in the profile menu or in the settings; it is stored on the account (applies immediately and on all devices). The login page and the help portal have a switch too. German stays the default
+- All texts of the interface live in translation files (`frontend/src/locales`, German text as the key), so further languages can be added by adding one file. Texts coming from the server (API error messages, some generated names) are still German. Migration 0032 adds the language to the user settings
+
 ## [0.8.11] - 2026-11-11
 
 ### Added

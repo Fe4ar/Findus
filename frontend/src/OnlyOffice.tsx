@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, NodeDetail } from "./api";
+import { tr } from "./i18n";
 
 const OFFICE_EXT = /\.(docx|doc|odt|rtf|xlsx|xls|ods|csv|pptx|ppt|odp)$/;
 export const isOffice = (name: string) => OFFICE_EXT.test(name) && !name.endsWith(".csv");
@@ -18,7 +19,7 @@ function loadScript(src: string) {
     s.onload = () => resolve();
     s.onerror = () => {
       scriptPromise = null;
-      reject(new Error("OnlyOffice nicht erreichbar"));
+      reject(new Error(tr("OnlyOffice nicht erreichbar")));
     };
     document.head.appendChild(s);
   });
@@ -44,7 +45,7 @@ export function OnlyOffice({ node, mode, onClosed }: { node: NodeDetail; mode: "
         setError(
           e instanceof ApiError
             ? e.message
-            : "Die Dokumentvorschau konnte nicht geladen werden. Läuft der OnlyOffice-Container?",
+            : tr("Die Dokumentvorschau konnte nicht geladen werden. Läuft der OnlyOffice-Container?"),
         );
       }
     })();
@@ -60,7 +61,7 @@ export function OnlyOffice({ node, mode, onClosed }: { node: NodeDetail; mode: "
     return (
       <p className="error">
         {error}{" "}
-        <a href="/office/healthcheck" target="_blank" rel="noreferrer">OnlyOffice prüfen</a>
+        <a href="/office/healthcheck" target="_blank" rel="noreferrer">{tr("OnlyOffice prüfen")}</a>
       </p>
     );
   return (

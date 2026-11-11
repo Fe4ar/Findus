@@ -2,6 +2,7 @@ import { StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "../styles.css";
 import "./hilfe.css";
+import { tr, dateLocale, useLang, setLang, getLang, LANGS } from "../i18n";
 
 // Help portal for people without an account: only the public FAQ, read-only, own entry point (/hilfe/).
 // It talks to /api/public/* and nothing else; no login, no cookies, no link into the internal app.
@@ -48,10 +49,10 @@ function TicketCard({ ticket, term }: { ticket: Landing["ticket"]; term: string 
   if (!ticket) return null;
   // {q} in the configured address is replaced by the search term or the page title; the server only stores http/https addresses.
   return (
-    <aside className="hilfe-ticket" aria-label="Ticket schreiben">
+    <aside className="hilfe-ticket" aria-label={tr("Ticket schreiben")}>
       <div>
-        <strong>Problem nicht gelöst? Ticket schreiben</strong>
-        <p className="muted">Hat die Antwort nicht geholfen? Schreib uns ein Ticket, wir kümmern uns darum.</p>
+        <strong>{tr("Problem nicht gelöst? Ticket schreiben")}</strong>
+        <p className="muted">{tr("Hat die Antwort nicht geholfen? Schreib uns ein Ticket, wir kümmern uns darum.")}</p>
       </div>
       <a className="button primary" href={ticket.url.replace(/\{q\}/g, encodeURIComponent(term))} target="_blank" rel="noopener noreferrer">{ticket.label}</a>
     </aside>
@@ -59,6 +60,7 @@ function TicketCard({ ticket, term }: { ticket: Landing["ticket"]; term: string 
 }
 
 function Portal() {
+  useLang(); // the portal is public: visitors choose the language here (remembered in the browser)
   const [id, setId] = useState(currentPage());
   useEffect(() => {
     const onPop = () => setId(currentPage());
@@ -72,7 +74,7 @@ function Portal() {
   };
   return (
     <div className="hilfe">
-      <header className="hilfe-bar"><a href="/hilfe/" onClick={(e) => { e.preventDefault(); open(null); }}><img src="/findus.svg" alt="" width={28} height={28} />Hilfe</a></header>
+      <header className="hilfe-bar"><a href="/hilfe/" onClick={(e) => { e.preventDefault(); open(null); }}><img src="/findus.svg" alt="" width={28} height={28} />{tr("Hilfe")}</a><span className="spacer" /><span className="hilfe-lang">{LANGS.map(({ code, name }, k) => <span key={code}>{k > 0 && " · "}<button type="button" className="link" aria-pressed={getLang() === code} onClick={() => setLang(code)}>{name}</button></span>)}</span></header>
       <main>{id ? <Article id={id} open={open} /> : <Start open={open} />}</main>
     </div>
   );
@@ -89,7 +91,7 @@ function Start({ open }: { open: (id: string) => void }) {
     if (!ids.length) return;
     get<Row[]>(`/api/public/titles?ids=${ids.join(",")}`).then((rows) => { writeSeen(rows.map((r) => r.id)); setSeen(rows.slice(0, 6)); }).catch(() => undefined);
   }, []);
-  useEffect(() => { document.title = "Hilfe"; get<Landing>("/api/public/faq").then(setData).catch(() => setData({ ticket: null, top: [], recent: [], categories: [] })); }, []);
+  useEffect(() => { document.title = tr("Hilfe"); get<Landing>("/api/public/faq").then(setData).catch(() => setData({ ticket: null, top: [], recent: [], categories: [] })); }, []);
   useEffect(() => {
     if (!q.trim()) return setHits(null);
     let stale = false;
@@ -101,9 +103,9 @@ function Start({ open }: { open: (id: string) => void }) {
   return (
     <>
       <section className="faq-hero hilfe-hero">
-        <h1>Wie können wir helfen?</h1>
+        <h1>{tr("Wie können wir helfen?")}</h1>
         <div className="faq-search">
-          <input type="search" placeholder="Frage oder Stichwort eingeben …" aria-label="Hilfe durchsuchen" value={q} role="combobox" aria-expanded={!!hits}
+          <input type="search" placeholder={tr("Frage oder Stichwort eingeben …")} aria-label={tr("Hilfe durchsuchen")} value={q} role="combobox" aria-expanded={!!hits}
             aria-controls="hilfe-results" onChange={(e) => setQ(e.target.value)} autoFocus
             onKeyDown={(e) => {
               if (e.key === "Escape") setHits(null);
@@ -115,8 +117,8 @@ function Start({ open }: { open: (id: string) => void }) {
           {hits && (
             <ul id="hilfe-results" className="faq-suggest" role="listbox">
               {!hits.length && (
-                <li className="faq-none"><span className="muted">Keine Treffer.</span>
-                  {data?.ticket && <a className="button primary" href={ticket(q)} target="_blank" rel="noopener noreferrer">Nichts gefunden? {data.ticket.label}</a>}</li>
+                <li className="faq-none"><span className="muted">{tr("Keine Treffer.")}</span>
+                  {data?.ticket && <a className="button primary" href={ticket(q)} target="_blank" rel="noopener noreferrer">{tr("Nichts gefunden?")}{" "}{data.ticket.label}</a>}</li>
               )}
               {hits.slice(0, 8).map((h, i) => (
                 <li key={h.id} role="option" aria-selected={i === active} onMouseEnter={() => setActive(i)} onMouseDown={(e) => { e.preventDefault(); open(h.id); }}>
@@ -129,20 +131,20 @@ function Start({ open }: { open: (id: string) => void }) {
       </section>
       <TicketCard ticket={data?.ticket ?? null} term={q} />
       {data && data.top.length > 0 && (
-        <section><h2>Meistgelesen</h2><ul className="faq-tiles">{data.top.map((t) => <li key={t.id}>{link(t.id, t.title, <small>{t.category}</small>)}</li>)}</ul></section>
+        <section><h2>{tr("Meistgelesen")}</h2><ul className="faq-tiles">{data.top.map((t) => <li key={t.id}>{link(t.id, t.title, <small>{t.category}</small>)}</li>)}</ul></section>
       )}
       {seen.length > 0 && (
-        <section><h2>Zuletzt angesehen</h2><ul className="faq-tiles">{seen.map((t) => <li key={t.id}>{link(t.id, t.title, <small>{t.category}</small>)}</li>)}</ul></section>
+        <section><h2>{tr("Zuletzt angesehen")}</h2><ul className="faq-tiles">{seen.map((t) => <li key={t.id}>{link(t.id, t.title, <small>{t.category}</small>)}</li>)}</ul></section>
       )}
       {data && data.categories.length > 0 && (
         <section>
-          <h2>Kategorien</h2>
+          <h2>{tr("Kategorien")}</h2>
           <div className="faq-cats">
             {data.categories.map((c) => (
               <article key={c.id}>
                 <h3>{c.title}</h3>
                 <ul>{c.pages.map((p) => <li key={p.id}>{link(p.id, p.title)}</li>)}</ul>
-                {c.more > 0 && <p className="muted small">und {c.more} weitere …</p>}
+                {c.more > 0 && <p className="muted small">{tr("und")}{" "}{c.more} {tr("weitere …")}</p>}
               </article>
             ))}
           </div>
@@ -159,21 +161,21 @@ function Article({ id, open }: { id: string; open: (id: string | null) => void }
   useEffect(() => {
     setPage(null);
     setMissing(false);
-    get<Page>(`/api/public/pages/${id}`).then((p) => { setPage(p); remember(id); document.title = `${p.title} – Hilfe`; }).catch(() => setMissing(true));
+    get<Page>(`/api/public/pages/${id}`).then((p) => { setPage(p); remember(id); document.title = `${p.title} – ${tr("Hilfe")}`; }).catch(() => setMissing(true));
   }, [id]);
   // Links to other pages of the FAQ (/n/<id> in the app) point into the portal; a plain click stays in the page.
   const onClick = (e: React.MouseEvent) => {
     const m = (e.target as Element).closest("a")?.getAttribute("href")?.match(/^\/hilfe\/\?p=([0-9a-f-]{36})$/);
     if (m && !e.ctrlKey && !e.metaKey) { e.preventDefault(); open(m[1]); }
   };
-  if (missing) return <><p><a href="/hilfe/" onClick={(e) => { e.preventDefault(); open(null); }}>← Alle Antworten</a></p><h1>Nicht gefunden</h1><p className="muted">Diese Seite gibt es nicht (mehr) oder sie ist nicht öffentlich.</p></>;
-  if (!page) return <p className="muted">Wird geladen …</p>;
+  if (missing) return <><p><a href="/hilfe/" onClick={(e) => { e.preventDefault(); open(null); }}>{tr("← Alle Antworten")}</a></p><h1>{tr("Nicht gefunden")}</h1><p className="muted">{tr("Diese Seite gibt es nicht (mehr) oder sie ist nicht öffentlich.")}</p></>;
+  if (!page) return <p className="muted">{tr("Wird geladen …")}</p>;
   return (
     <article className="hilfe-article">
-      <p className="hilfe-crumbs"><a href="/hilfe/" onClick={(e) => { e.preventDefault(); open(null); }}>← Alle Antworten</a>{page.breadcrumb.map((b) => <span key={b.id}> / {b.title}</span>)}</p>
+      <p className="hilfe-crumbs"><a href="/hilfe/" onClick={(e) => { e.preventDefault(); open(null); }}>{tr("← Alle Antworten")}</a>{page.breadcrumb.map((b) => <span key={b.id}> / {b.title}</span>)}</p>
       <h1>{page.title}</h1>
       <div ref={body} className="prose" onClick={onClick} dangerouslySetInnerHTML={{ __html: portalLinks(page.content_html) }} />
-      <p className="muted small">Zuletzt geändert: {new Date(page.updated_at).toLocaleDateString("de-DE")}</p>
+      <p className="muted small">{tr("Zuletzt geändert:")}{" "}{new Date(page.updated_at).toLocaleDateString(dateLocale())}</p>
       <TicketCard ticket={page.ticket} term={page.title} />
     </article>
   );

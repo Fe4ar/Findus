@@ -12,6 +12,7 @@ import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { common, createLowlight } from "lowlight";
 import { ask } from "./Dialog";
 import { LinkPicker } from "./LinkPicker";
+import { tr } from "./i18n";
 
 const lowlight = createLowlight(common);
 
@@ -154,23 +155,23 @@ export function Editor({ initial, initialHtml, onReady, onImage, onFile, onDiagr
   return (
     <div className="editor">
       {linkFor !== null && <LinkPicker prev={linkFor || undefined} onDone={applyLink} onCancel={() => setLinkFor(null)} />}
-      <div className="toolbar" role="toolbar" aria-label="Formatierung">
-        {btn("h1", "Überschrift 1", () => c().toggleHeading({ level: 1 }).run(), editor.isActive("heading", { level: 1 }))}
-        {btn("h2", "Überschrift 2", () => c().toggleHeading({ level: 2 }).run(), editor.isActive("heading", { level: 2 }))}
-        {btn("h3", "Überschrift 3", () => c().toggleHeading({ level: 3 }).run(), editor.isActive("heading", { level: 3 }))}
+      <div className="toolbar" role="toolbar" aria-label={tr("Formatierung")}>
+        {btn("h1", tr("Überschrift 1"), () => c().toggleHeading({ level: 1 }).run(), editor.isActive("heading", { level: 1 }))}
+        {btn("h2", tr("Überschrift 2"), () => c().toggleHeading({ level: 2 }).run(), editor.isActive("heading", { level: 2 }))}
+        {btn("h3", tr("Überschrift 3"), () => c().toggleHeading({ level: 3 }).run(), editor.isActive("heading", { level: 3 }))}
         <span className="sep" />
-        {btn("bold", "Fett", () => c().toggleBold().run(), editor.isActive("bold"))}
-        {btn("italic", "Kursiv", () => c().toggleItalic().run(), editor.isActive("italic"))}
-        {btn("strike", "Durchgestrichen", () => c().toggleStrike().run(), editor.isActive("strike"))}
+        {btn("bold", tr("Fett"), () => c().toggleBold().run(), editor.isActive("bold"))}
+        {btn("italic", tr("Kursiv"), () => c().toggleItalic().run(), editor.isActive("italic"))}
+        {btn("strike", tr("Durchgestrichen"), () => c().toggleStrike().run(), editor.isActive("strike"))}
         {btn("code", "Code", () => c().toggleCode().run(), editor.isActive("code"))}
         <span className="sep" />
-        {btn("bulletList", "Aufzählung", () => c().toggleBulletList().run(), editor.isActive("bulletList"))}
-        {btn("orderedList", "Nummerierte Liste", () => c().toggleOrderedList().run(), editor.isActive("orderedList"))}
-        {btn("quote", "Zitat", () => c().toggleBlockquote().run(), editor.isActive("blockquote"))}
-        {btn("codeBlock", "Codeblock", () => c().toggleCodeBlock().run(), editor.isActive("codeBlock"))}
+        {btn("bulletList", tr("Aufzählung"), () => c().toggleBulletList().run(), editor.isActive("bulletList"))}
+        {btn("orderedList", tr("Nummerierte Liste"), () => c().toggleOrderedList().run(), editor.isActive("orderedList"))}
+        {btn("quote", tr("Zitat"), () => c().toggleBlockquote().run(), editor.isActive("blockquote"))}
+        {btn("codeBlock", tr("Codeblock"), () => c().toggleCodeBlock().run(), editor.isActive("codeBlock"))}
         <span className="sep" />
         {btn("link", "Link", () => setLinkFor(editor.getAttributes("link").href ?? ""), editor.isActive("link"))}
-        {onImage && btn("image", "Bild einfügen", () => {
+        {onImage && btn("image", tr("Bild einfügen"), () => {
           const input = document.createElement("input");
           input.type = "file";
           input.accept = "image/*";
@@ -182,29 +183,29 @@ export function Editor({ initial, initialHtml, onReady, onImage, onFile, onDiagr
           };
           input.click();
         })}
-        {onFile && btn("upload", "Datei einbetten (Dokument, PDF …)", () => {
+        {onFile && btn("upload", tr("Datei einbetten (Dokument, PDF …)"), () => {
           const input = document.createElement("input");
           input.type = "file";
           input.onchange = () => { const file = input.files?.[0]; if (file) void insertDocs([file], editor.state.selection.to); };
           input.click();
         })}
-        {onDiagram && btn("diagram", "Schaubild (draw.io) einfügen", async () => {
+        {onDiagram && btn("diagram", tr("Schaubild (draw.io) einfügen"), async () => {
           const file = await onDiagram();
           if (file) c().insertContent({ type: "drawio", attrs: { file } }).run();
         })}
-        {btn("table", "Tabelle einfügen", () => c().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run())}
+        {btn("table", tr("Tabelle einfügen"), () => c().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run())}
         {editor.isActive("table") && (
           <>
-            {btn("rowAdd", "Zeile darunter", () => c().addRowAfter().run())}
-            {btn("colAdd", "Spalte rechts", () => c().addColumnAfter().run())}
-            {btn("rowDelete", "Zeile löschen", () => c().deleteRow().run())}
-            {btn("colDelete", "Spalte löschen", () => c().deleteColumn().run())}
-            {btn("trash", "Tabelle löschen", () => c().deleteTable().run())}
+            {btn("rowAdd", tr("Zeile darunter"), () => c().addRowAfter().run())}
+            {btn("colAdd", tr("Spalte rechts"), () => c().addColumnAfter().run())}
+            {btn("rowDelete", tr("Zeile löschen"), () => c().deleteRow().run())}
+            {btn("colDelete", tr("Spalte löschen"), () => c().deleteColumn().run())}
+            {btn("trash", tr("Tabelle löschen"), () => c().deleteTable().run())}
           </>
         )}
         <span className="sep" />
-        {btn("undo", "Rückgängig", () => c().undo().run())}
-        {btn("redo", "Wiederholen", () => c().redo().run())}
+        {btn("undo", tr("Rückgängig"), () => c().undo().run())}
+        {btn("redo", tr("Wiederholen"), () => c().redo().run())}
       </div>
       <EditorContent editor={editor} className="prose editing" />
     </div>

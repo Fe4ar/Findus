@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, NodeDetail } from "./api";
 import { notify } from "./Dialog";
+import { tr, trs } from "./i18n";
 
 type Flag = "can_read" | "can_write" | "can_publish" | "can_manage";
 type Flags = Record<Flag, boolean>;
@@ -34,7 +35,7 @@ export function Rights({ node, onSaved }: { node: NodeDetail; onSaved: (n: NodeD
       const rows = next.filter((g) => g.own).map((g) => ({ group: g.id, ...g.own }));
       setGroups((await api<{ groups: GroupRights[] }>(`/api/nodes/${node.id}/permissions`, { method: "PUT", body: { rows } })).groups);
     } catch (e) {
-      notify(e instanceof ApiError ? e.message : "Speichern fehlgeschlagen.");
+      notify(e instanceof ApiError ? e.message : tr("Speichern fehlgeschlagen."));
     }
     setSaving(false);
   }
@@ -43,34 +44,33 @@ export function Rights({ node, onSaved }: { node: NodeDetail; onSaved: (n: NodeD
     save(groups.map((x) => (x.id === g.id ? { ...x, own: { ...(x.own ?? NONE), [flag]: !(x.own ?? NONE)[flag] } } : x)));
 
   return (
-    <section className="rights" aria-label="Rechte">
-      <h3>Rechte</h3>
+    <section className="rights" aria-label={tr("Rechte")}>
+      <h3>{tr("Rechte")}</h3>
       {node.kind === "area" && node.space === "wiki" && node.is_public && (
         <label className="rights-public">
           <input type="checkbox" checked={node.is_public} disabled={saving} onChange={async (e) => {
             try {
               onSaved(await api(`/api/nodes/${node.id}`, { method: "PATCH", body: { is_public: e.target.checked } }));
             } catch (err) {
-              notify(err instanceof ApiError ? err.message : "Speichern fehlgeschlagen.");
+              notify(err instanceof ApiError ? err.message : tr("Speichern fehlgeschlagen."));
             }
           }} />
-          Öffentlich (ohne Anmeldung lesbar, nur veröffentlichte Inhalte)
-        </label>
+          {tr("Öffentlich (ohne Anmeldung lesbar, nur veröffentlichte Inhalte)")}</label>
       )}
       <table>
         <thead>
-          <tr><th>Gruppe</th>{FLAGS.map(([, label, short]) => <th key={short}><abbr title={label}>{short}</abbr></th>)}</tr>
+          <tr><th>{tr("Gruppe")}</th>{FLAGS.map(([, label, short]) => <th key={short}><abbr title={tr(label)}>{tr(label).charAt(0).toUpperCase()}</abbr></th>)}</tr>
         </thead>
         <tbody>
           {groups.map((g) => (
             <tr key={g.id}>
-              <td>{g.name}</td>
+              <td>{trs(g.name)}</td>
               {FLAGS.map(([flag, label]) => {
                 const inherited = g.inherited[flag];
                 return (
                   <td key={flag}>
-                    <input type="checkbox" aria-label={`${g.name}: ${label}`} disabled={saving || inherited}
-                      title={inherited ? "Geerbt von oben" : undefined}
+                    <input type="checkbox" aria-label={tr("{group}: {label}", { group: trs(g.name), label: tr(label) })} disabled={saving || inherited}
+                      title={inherited ? tr("Geerbt von oben") : undefined}
                       checked={inherited || !!g.own?.[flag]} onChange={() => toggle(g, flag)} />
                   </td>
                 );
@@ -79,7 +79,7 @@ export function Rights({ node, onSaved }: { node: NodeDetail; onSaved: (n: NodeD
           ))}
         </tbody>
       </table>
-      <p className="muted">L Lesen, S Schreiben, V Veröffentlichen, R Rechte verwalten. Ausgegraut = geerbt (von oben oder global). Gilt für alles darunter.</p>
+      <p className="muted">{tr("L Lesen, S Schreiben, V Veröffentlichen, R Rechte verwalten. Ausgegraut = geerbt (von oben oder global). Gilt für alles darunter.")}</p>
     </section>
   );
 }

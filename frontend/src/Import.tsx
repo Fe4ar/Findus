@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, formatSize } from "./api";
 import { Icon } from "./Icons";
+import { tr } from "./i18n";
 
 // Folder import: the browser reads the local folder, the files go up one by one (progress, report); the server creates
 // the folders, cleans the names and refuses odd paths. Limits keep a wrong click from filling the wiki.
@@ -38,14 +39,14 @@ export function ImportDialog({ parent, title, onClose, onDone }: { parent: strin
     const skip: string[] = [];
     const ok = all.filter((i) => {
       if (IGNORED.test(i.path)) return false;
-      if (i.file.size > MAX_FILE_MB * 1024 * 1024) { skip.push(`${i.path}: größer als ${MAX_FILE_MB} MB`); return false; }
+      if (i.file.size > MAX_FILE_MB * 1024 * 1024) { skip.push(tr("{path}: größer als {MAX_FILE_MB} MB", { path: i.path, MAX_FILE_MB })); return false; }
       return true;
     });
     let total = 0;
     const kept: Item[] = [];
     for (const i of ok) {
-      if (kept.length >= MAX_FILES) { skip.push(`${i.path}: mehr als ${MAX_FILES} Dateien`); continue; }
-      if (total + i.file.size > MAX_TOTAL_MB * 1024 * 1024) { skip.push(`${i.path}: Gesamtgröße über ${MAX_TOTAL_MB} MB`); continue; }
+      if (kept.length >= MAX_FILES) { skip.push(tr("{path}: mehr als {MAX_FILES} Dateien", { path: i.path, MAX_FILES })); continue; }
+      if (total + i.file.size > MAX_TOTAL_MB * 1024 * 1024) { skip.push(tr("{path}: Gesamtgröße über {MAX_TOTAL_MB} MB", { path: i.path, MAX_TOTAL_MB })); continue; }
       total += i.file.size;
       kept.push(i);
     }
@@ -65,7 +66,7 @@ export function ImportDialog({ parent, title, onClose, onDone }: { parent: strin
           const r = await api<{ created: boolean }>("/api/import", { method: "POST", body: form });
           r.created ? rep.created++ : rep.updated++;
         } catch (e) {
-          rep.failed.push({ path: it.path, reason: e instanceof ApiError ? e.message : "Fehler" });
+          rep.failed.push({ path: it.path, reason: e instanceof ApiError ? e.message : tr("Fehler") });
         }
         setDone((d) => d + 1);
       }
@@ -76,10 +77,10 @@ export function ImportDialog({ parent, title, onClose, onDone }: { parent: strin
 
   const total = items.reduce((n, i) => n + i.file.size, 0);
   return (
-    <dialog ref={ref} className="dialog modal wide" aria-label="Ordner importieren" onClose={onClose}
+    <dialog ref={ref} className="dialog modal wide" aria-label={tr("Ordner importieren")} onClose={onClose}
       onCancel={(e) => { if (running) e.preventDefault(); }}>
-      <h2>Ordner importieren</h2>
-      <p className="muted">Ziel: <strong>{title}</strong>. Unterordner werden zu Ordnern, Dateien zu Dokumenten darin. Gleiche Dateinamen bekommen eine neue Version.</p>
+      <h2>{tr("Ordner importieren")}</h2>
+      <p className="muted">{tr("Ziel:")}{" "}<strong>{title}</strong>{tr(". Unterordner werden zu Ordnern, Dateien zu Dokumenten darin. Gleiche Dateinamen bekommen eine neue Version.")}</p>
       {!report && (
         <div className={`dropzone${drag ? " over" : ""}`}
           onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
@@ -90,9 +91,8 @@ export function ImportDialog({ parent, title, onClose, onDone }: { parent: strin
             take(out);
           }}>
           <Icon name="upload" size={28} />
-          <p>Ordner hierher ziehen oder</p>
-          <label className="button">Ordner wählen …
-            <input type="file" hidden disabled={running} {...({ webkitdirectory: "", directory: "" } as object)} multiple
+          <p>{tr("Ordner hierher ziehen oder")}</p>
+          <label className="button">{tr("Ordner wählen …")}<input type="file" hidden disabled={running} {...({ webkitdirectory: "", directory: "" } as object)} multiple
               onChange={(e) => {
                 const files = Array.from(e.target.files ?? []);
                 e.target.value = "";
@@ -102,21 +102,21 @@ export function ImportDialog({ parent, title, onClose, onDone }: { parent: strin
         </div>
       )}
       {!!items.length && !report && (
-        <p>{items.length} Dateien, {formatSize(total)}{running && <> · <strong>{done} / {items.length}</strong></>}</p>
+        <p>{items.length} {tr("Dateien,")}{" "}{formatSize(total)}{running && <> · <strong>{done} / {items.length}</strong></>}</p>
       )}
       {running && <progress className="import-progress" max={items.length} value={done} />}
       {!!skipped.length && !report && (
-        <details open><summary>{skipped.length} Dateien übersprungen</summary><ul className="import-list">{skipped.slice(0, 50).map((s) => <li key={s}>{s}</li>)}</ul></details>
+        <details open><summary>{skipped.length} {tr("Dateien übersprungen")}</summary><ul className="import-list">{skipped.slice(0, 50).map((s) => <li key={s}>{s}</li>)}</ul></details>
       )}
       {report && (
         <div role="status">
-          <p><strong>{report.created}</strong> neu angelegt, <strong>{report.updated}</strong> als neue Version, <strong>{report.failed.length}</strong> fehlgeschlagen{skipped.length ? `, ${skipped.length} übersprungen` : ""}.</p>
+          <p><strong>{report.created}</strong> {tr("neu angelegt,")}{" "}<strong>{report.updated}</strong> {tr("als neue Version,")}{" "}<strong>{report.failed.length}</strong> {tr("fehlgeschlagen")}{skipped.length ? tr(", {length} übersprungen", { length: skipped.length }) : ""}.</p>
           {!!report.failed.length && <ul className="import-list">{report.failed.slice(0, 50).map((f) => <li key={f.path}>{f.path}: {f.reason}</li>)}</ul>}
         </div>
       )}
       <div className="actions">
-        <button disabled={running} onClick={() => ref.current?.close()}>{report ? "Schließen" : "Abbrechen"}</button>
-        {!report && <button className="primary" disabled={!items.length || running} onClick={run}>Importieren</button>}
+        <button disabled={running} onClick={() => ref.current?.close()}>{report ? tr("Schließen") : tr("Abbrechen")}</button>
+        {!report && <button className="primary" disabled={!items.length || running} onClick={run}>{tr("Importieren")}</button>}
       </div>
     </dialog>
   );

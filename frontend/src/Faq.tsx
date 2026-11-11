@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
+import { tr } from "./i18n";
 
 // Landing page of the public FAQ: one big search box with suggestions, the most read posts as tiles, then the categories.
 interface Hit { id: string; kind: string; title: string; path: string; snippet: string }
@@ -34,9 +35,9 @@ export function Faq({ onSelect }: { onSelect: (id: string) => void }) {
   return (
     <div className="faq">
       <section className="faq-hero">
-        <h1>Wie können wir helfen?</h1>
+        <h1>{tr("Wie können wir helfen?")}</h1>
         <div className="faq-search" ref={box}>
-          <input type="search" placeholder="Frage oder Stichwort eingeben …" aria-label="FAQ durchsuchen" value={q} role="combobox" aria-expanded={!!hits}
+          <input type="search" placeholder={tr("Frage oder Stichwort eingeben …")} aria-label={tr("FAQ durchsuchen")} value={q} role="combobox" aria-expanded={!!hits}
             aria-controls="faq-results" onChange={(e) => setQ(e.target.value)} autoFocus
             onKeyDown={(e) => {
               if (e.key === "Escape") setHits(null);
@@ -48,8 +49,8 @@ export function Faq({ onSelect }: { onSelect: (id: string) => void }) {
           {hits && (
             <ul id="faq-results" className="faq-suggest" role="listbox">
               {!hits.length && (
-                <li className="faq-none"><span className="muted">Keine Treffer.</span>
-                  {data?.ticket && <a className="button primary" href={ticketHref(q)} target="_blank" rel="noopener noreferrer">Nichts gefunden? {data.ticket.label}</a>}</li>
+                <li className="faq-none"><span className="muted">{tr("Keine Treffer.")}</span>
+                  {data?.ticket && <a className="button primary" href={ticketHref(q)} target="_blank" rel="noopener noreferrer">{tr("Nichts gefunden?")}{" "}{data.ticket.label}</a>}</li>
               )}
               {hits.slice(0, 8).map((h, i) => (
                 <li key={h.id} role="option" aria-selected={i === active} onMouseEnter={() => setActive(i)} onMouseDown={(e) => { e.preventDefault(); onSelect(h.id); }}>
@@ -62,7 +63,7 @@ export function Faq({ onSelect }: { onSelect: (id: string) => void }) {
       </section>
       {data && data.top.length > 0 && (
         <section>
-          <h2>Meistgelesen</h2>
+          <h2>{tr("Meistgelesen")}</h2>
           <ul className="faq-tiles">
             {data.top.map((t) => <li key={t.id}>{link(t.id, t.title, <small>{t.category}</small>)}</li>)}
           </ul>
@@ -70,20 +71,20 @@ export function Faq({ onSelect }: { onSelect: (id: string) => void }) {
       )}
       {data && data.categories.length > 0 && (
         <section>
-          <h2>Kategorien</h2>
+          <h2>{tr("Kategorien")}</h2>
           <div className="faq-cats">
             {data.categories.map((c) => (
               <article key={c.id}>
                 <h3>{c.title}</h3>
                 <ul>{c.pages.map((p) => <li key={p.id}>{link(p.id, p.title)}</li>)}</ul>
-                {c.more > 0 && <p className="muted small">und {c.more} weitere …</p>}
+                {c.more > 0 && <p className="muted small">{tr("und")}{" "}{c.more} {tr("weitere …")}</p>}
               </article>
             ))}
           </div>
         </section>
       )}
       {data?.ticket && (
-        <p className="faq-ticket muted">Keine Antwort gefunden? <a href={ticketHref(q)} target="_blank" rel="noopener noreferrer">{data.ticket.label}</a></p>
+        <p className="faq-ticket muted">{tr("Keine Antwort gefunden?")}{" "}<a href={ticketHref(q)} target="_blank" rel="noopener noreferrer">{data.ticket.label}</a></p>
       )}
     </div>
   );

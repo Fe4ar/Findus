@@ -18,24 +18,25 @@ import { ProfileMenu } from "./ProfileMenu";
 import { ForcedPassword } from "./Password";
 import { NavTab, TabNav } from "./TabNav";
 import "./styles.css";
+import { tr, useLang, setLang, getLang, LANGS, Lang } from "./i18n";
 
 // Top-level tabs: "overview", "team-<id>" (one per team, its area), "wiki" (areas outside every team), "tasks", "map",
 // "faq" (Alle Anwender, the public areas) and "admin" (not in the bar).
 type Tab = string;
-const teamLabel = (name: string) => (/^team\b/i.test(name) ? name : `Team ${name}`);
+const teamLabel = (name: string) => (/^team\b/i.test(name) ? name : tr("Team {name}", { name }));
 
 /** The tab bar of a user: one tab per team (all teams for admins), the functions their teams have on, the FAQ. */
 function tabsFor(me: Me): NavTab[] {
   const on = (f: string) => !!me.features?.includes(f); // the server decides: users without a team or rights only have the FAQ
   const nav = me.nav ?? { teams: [], other: false, public_areas: [] };
   return [
-    { id: "overview", label: "Übersicht", path: "/" },
-    ...(nav.private ? [{ id: "private", label: "Privat", path: `/n/${nav.private}` }] : []),
+    { id: "overview", label: tr("Übersicht"), path: "/" },
+    ...(nav.private ? [{ id: "private", label: tr("Privat"), path: `/n/${nav.private}` }] : []),
     ...(on("wiki") ? nav.teams.map((t) => ({ id: `team-${t.id}`, label: teamLabel(t.name), path: `/n/${t.area}`, team: true })) : []),
-    ...(on("wiki") && nav.other ? [{ id: "wiki", label: "Wiki", path: "/wiki" }] : []),
-    ...(on("tasks") ? [{ id: "tasks", label: "Aufgaben", path: "/aufgaben" }] : []),
-    ...(on("network") ? [{ id: "map", label: "Netzwerk", path: "/netzwerk" }] : []),
-    ...(on("faq") ? [{ id: "faq", label: "Alle Anwender", path: "/anwender" }] : []),
+    ...(on("wiki") && nav.other ? [{ id: "wiki", label: tr("Wiki"), path: "/wiki" }] : []),
+    ...(on("tasks") ? [{ id: "tasks", label: tr("Aufgaben"), path: "/aufgaben" }] : []),
+    ...(on("network") ? [{ id: "map", label: tr("Netzwerk"), path: "/netzwerk" }] : []),
+    ...(on("faq") ? [{ id: "faq", label: tr("Alle Anwender"), path: "/anwender" }] : []),
     ...extensions.filter((e) => e.show(me)).map((e) => ({ id: e.id, label: e.label, path: e.path })),
   ];
 }
@@ -75,7 +76,7 @@ function useVersion() {
 const NOTICE_KEY = "findus-notice";
 function Login({ onLogin }: { onLogin: (me: Me) => void }) {
   const version = useVersion();
-  const [notice] = useState(() => { try { const n = sessionStorage.getItem(NOTICE_KEY); sessionStorage.removeItem(NOTICE_KEY); return n ?? ""; } catch { return ""; } });
+  const [notice] = useState(() => { try { const n = sessionStorage.getItem(NOTICE_KEY); sessionStorage.removeItem(NOTICE_KEY); return n === "idle" ? "idle" : ""; } catch { return ""; } });
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -88,23 +89,22 @@ function Login({ onLogin }: { onLogin: (me: Me) => void }) {
           try {
             onLogin(await api<Me>("/api/auth/login", { method: "POST", body: { username, password } }));
           } catch (err) {
-            setError(err instanceof ApiError ? err.message : "Anmeldung fehlgeschlagen.");
+            setError(err instanceof ApiError ? err.message : tr("Anmeldung fehlgeschlagen."));
           }
         }}
       >
-        <h1><img src="/findus.svg" alt="" />Findus{version && <small className="brand-version">v{version}</small>}</h1>
-        {notice && <p className="notice" role="status">{notice}</p>}
+        <h1><img src="/findus.svg" alt="" />{tr("Findus")}{version && <small className="brand-version">v{version}</small>}</h1>
+        {notice && <p className="notice" role="status">{tr("Automatisch abgemeldet wegen Inaktivität.")}</p>}
         <label>
-          Benutzername
-          <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus autoComplete="username" />
+          {tr("Benutzername")}<input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus autoComplete="username" />
         </label>
         <label>
-          Passwort
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+          {tr("Passwort")}<input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
             autoComplete="current-password" />
         </label>
         {error && <p className="error" role="alert">{error}</p>}
-        <button type="submit" className="primary">Anmelden</button>
+        <button type="submit" className="primary">{tr("Anmelden")}</button>
+        <p className="login-lang">{LANGS.map(({ code, name }, i) => <span key={code}>{i > 0 && " · "}<button type="button" className="link" aria-pressed={getLang() === code} onClick={() => setLang(code)}>{name}</button></span>)}</p>
       </form>
     </main>
   );
@@ -123,7 +123,7 @@ function SideHandle({ width, onChange }: { width: number; onChange: (w: number) 
     const end = () => { el.classList.remove("dragging"); document.body.classList.remove("side-dragging"); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", end); el.removeEventListener("pointercancel", end); };
     el.addEventListener("pointermove", move); el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
   };
-  return <button type="button" className="side-handle" role="separator" aria-orientation="vertical" aria-label="Breite der Seitenleiste ändern" aria-valuenow={width} aria-valuemin={SIDE_MIN} aria-valuemax={SIDE_MAX}
+  return <button type="button" className="side-handle" role="separator" aria-orientation="vertical" aria-label={tr("Breite der Seitenleiste ändern")} aria-valuenow={width} aria-valuemin={SIDE_MIN} aria-valuemax={SIDE_MAX}
     onPointerDown={start} onDoubleClick={() => onChange(SIDE_DEFAULT)}
     onKeyDown={(e) => { if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); onChange(clampSide(width + (e.key === "ArrowRight" ? 20 : -20))); } }} />;
 }
@@ -150,10 +150,16 @@ function App() {
       return "auto";
     }
   });
+  useLang(); // re-render everything when the language changes
   const applyMe = useCallback((m: Me) => {
     setMe(m);
     if (m.theme) setTheme(m.theme);
+    if (m.language) setLang(m.language);
   }, []);
+  const chooseLang = (l: Lang) => {
+    setLang(l);
+    if (me?.authenticated) api("/api/auth/settings", { method: "PUT", body: { language: l } }).catch(() => {});
+  };
   const chooseTheme = (t: Theme) => {
     setTheme(t);
     if (me?.authenticated) api("/api/auth/settings", { method: "PUT", body: { theme: t } }).catch(() => {});
@@ -164,7 +170,7 @@ function App() {
   // activity in the browser (all tabs share it) and signs out cleanly, and a refused request triggers a check whether the session is gone.
   const idleMin = me?.authenticated ? me.idle_logout_minutes ?? 0 : 0;
   const expire = useCallback(() => {
-    try { sessionStorage.setItem(NOTICE_KEY, "Automatisch abgemeldet wegen Inaktivität."); } catch { /* shown without the note */ }
+    try { sessionStorage.setItem(NOTICE_KEY, "idle"); } catch { /* shown without the note */ }
     api("/api/auth/logout", { method: "POST" }).catch(() => undefined).finally(() => setMe({ authenticated: false }));
   }, []);
   useEffect(() => {
@@ -196,7 +202,7 @@ function App() {
     const onCheck = () => {
       if (busy || !me?.authenticated) return;
       busy = true;
-      api<Me>("/api/auth/me").then((m) => { if (!m.authenticated) { try { sessionStorage.setItem(NOTICE_KEY, "Automatisch abgemeldet wegen Inaktivität."); } catch { /* ignore */ } setMe({ authenticated: false }); } })
+      api<Me>("/api/auth/me").then((m) => { if (!m.authenticated) { try { sessionStorage.setItem(NOTICE_KEY, "idle"); } catch { /* ignore */ } setMe({ authenticated: false }); } })
         .catch(() => undefined).finally(() => { busy = false; });
     };
     addEventListener("findus-auth-check", onCheck);
@@ -311,9 +317,9 @@ function App() {
     // Activating the right half of a split view swaps the halves instead of ending the split.
     setState((s) => (s.active === id ? s : { ...s, active: id, split: s.split === id ? s.active : s.split }));
   }, []);
-  const discard = (message: string) => confirmDialog({ title: "Ungespeicherte Änderungen verwerfen?", message, ok: "Verwerfen", danger: true });
+  const discard = (message: string) => confirmDialog({ title: tr("Ungespeicherte Änderungen verwerfen?"), message, ok: tr("Verwerfen"), danger: true });
   const closeTab = async (id: string) => {
-    if (dirtyRef.current[id] && !(await discard("Dieser Tab hat ungespeicherte Änderungen."))) return;
+    if (dirtyRef.current[id] && !(await discard(tr("Dieser Tab hat ungespeicherte Änderungen.")))) return;
     setState((s) => {
       const i = s.tabs.findIndex((t) => t.id === id);
       let tabs = s.tabs.filter((t) => t.id !== id);
@@ -324,7 +330,7 @@ function App() {
   };
   const closeOthers = async (id: string) => {
     const others = state.tabs.filter((t) => t.id !== id && !t.pinned);
-    if (others.some((t) => dirtyRef.current[t.id]) && !(await discard("Andere Tabs haben ungespeicherte Änderungen."))) return;
+    if (others.some((t) => dirtyRef.current[t.id]) && !(await discard(tr("Andere Tabs haben ungespeicherte Änderungen.")))) return;
     setState((s) => ({ tabs: s.tabs.filter((t) => t.id === id || t.pinned), active: id, split: null }));
   };
   const reorder = (dragged: string, before: string) => setState((s) => {
@@ -387,29 +393,29 @@ function App() {
   return (
     <div className={`${section === "overview" ? "layout full" : "layout"}${anon || section === "overview" ? "" : " with-tabs"}`} style={{ "--side-w": `${sideW}px` } as CSSProperties}>
       <header className="topbar">
-        <a href="/" className="brand" onClick={(e) => { e.preventDefault(); go("/"); }}><img src="/findus.svg" alt="" className="logo" />Findus{appVersion && <small className="brand-version" title="Version">v{appVersion}</small>}</a>
+        <a href="/" className="brand" onClick={(e) => { e.preventDefault(); go("/"); }}><img src="/findus.svg" alt="" className="logo" />{tr("Findus")}{appVersion && <small className="brand-version" title={tr("Version")}>v{appVersion}</small>}</a>
         <TabNav tabs={tabs} section={section} go={go} />
         <Search onSelect={(id) => go(`/n/${id}`)} onOpenTab={anon ? undefined : (path) => openTab(path)} teams={me.nav?.teams ?? []} hasPrivate={!!me.nav?.private} />
-        <ProfileMenu me={me} theme={theme} onTheme={chooseTheme} onMe={applyMe}
+        <ProfileMenu me={me} theme={theme} onTheme={chooseTheme} onLang={chooseLang} onMe={applyMe}
           onLogout={async () => { await api("/api/auth/logout", { method: "POST" }); setMe({ authenticated: false }); }} />
       </header>
       {(section === "wiki" || section === "faq" || section === "private" || team) && (
-        <nav className="sidebar" aria-label={team ? teamLabel(team.name) : section === "private" ? "Privat" : section === "faq" ? "Alle Anwender" : "Ordnerbaum"}>
+        <nav className="sidebar" aria-label={team ? teamLabel(team.name) : section === "private" ? tr("Privat") : section === "faq" ? tr("Alle Anwender") : tr("Ordnerbaum")}>
           <Tree key={section} selected={selectedId} version={treeVersion} onChanged={changed} user={user ?? ""} canExport={!!me.can_download}
             onSelect={(id) => go(id ? `/n/${id}` : team ? `/n/${team.area}` : section === "private" ? `/n/${me.nav?.private}` : section === "faq" ? "/anwender" : "/wiki")}
-            rootId={team?.area ?? (section === "private" ? me.nav?.private ?? undefined : undefined)} head={team ? teamLabel(team.name) : section === "private" ? "Mein Bereich" : undefined} incoming={team ? "team" : section === "private" ? "user" : undefined} scope={section === "faq" ? "public" : section === "wiki" ? "other" : undefined}
+            rootId={team?.area ?? (section === "private" ? me.nav?.private ?? undefined : undefined)} head={team ? teamLabel(team.name) : section === "private" ? tr("Mein Bereich") : undefined} incoming={team ? "team" : section === "private" ? "user" : undefined} scope={section === "faq" ? "public" : section === "wiki" ? "other" : undefined}
             canCreateRoot={team ? team.write : section === "private" ? !!me.nav?.private : section === "faq" ? false : !!me.can_create_area}
             onOpenTab={(id) => openTab(`/n/${id}`)} />
         </nav>
       )}
       {section === "map" && (
-        <nav className="sidebar" aria-label="Netzwerk">
+        <nav className="sidebar" aria-label={tr("Netzwerk")}>
           <Tree space="karte" selected={selectedId} onSelect={(id) => go(id ? `/netzwerk/${id}` : "/netzwerk")} version={treeVersion}
             onChanged={changed} canCreateRoot={!!me.can_create_area} onOpenTab={(id) => openTab(`/netzwerk/${id}`)} />
         </nav>
       )}
       {section === "admin" && (
-        <nav className="sidebar" aria-label="Verwaltung"><AdminNav me={me} path={activePath} go={go} /></nav>
+        <nav className="sidebar" aria-label={tr("Verwaltung")}><AdminNav me={me} path={activePath} go={go} /></nav>
       )}
       {(section === "wiki" || section === "faq" || section === "private" || team || section === "map" || section === "admin") && <SideHandle width={sideW} onChange={changeSide} />}
       <div className="workspace">
@@ -425,7 +431,7 @@ function App() {
         {(anon ? [activeTab] : state.tabs).map((t) => (
           // Every open tab stays mounted (hidden) so editors, OnlyOffice and draw.io keep their state.
           <section key={t.id} className="tab-pane" hidden={!shown(t) || home} style={{ order: t.id === state.active ? 0 : 1 }}
-            aria-label={t.id === split ? "Rechte Hälfte" : undefined}
+            aria-label={t.id === split ? tr("Rechte Hälfte") : undefined}
             onPointerDownCapture={() => { if (t.id !== state.active) activate(t.id); }}>
             <TabContext.Provider value={{ setDirty: dirtySetter(t.id) }}>
               <View path={t.path} anon={anon} me={me} go={(path) => goIn(t.id, path)} changed={changed} />
@@ -444,32 +450,32 @@ function View({ path, anon, me, go, changed }: { path: string; anon: boolean; me
   if (p.startsWith("/netzwerk") && !anon && me.features?.includes("network")) {
     return id ? <NetView key={id} id={id} onChanged={changed} search={path.split("?")[1] ?? ""} /> : (
       <>
-        <h1>Netzwerk</h1>
-        <p className="muted">Links eine Karte oder einen Netzplan wählen. Rechtsklick legt Ordner, Karten und Netzplan-Verknüpfungen an, Ziehen verschiebt.</p>
+        <h1>{tr("Netzwerk")}</h1>
+        <p className="muted">{tr("Links eine Karte oder einen Netzplan wählen. Rechtsklick legt Ordner, Karten und Netzplan-Verknüpfungen an, Ziehen verschiebt.")}</p>
       </>
     );
   }
   if (p.startsWith("/verwaltung") && !anon) return <Admin me={me} path={path} go={go} />;
   const ext = extensions.find((e) => p.startsWith(e.path));
   if (ext && !anon && ext.show(me)) return <>{ext.render()}</>;
-  if (p.startsWith("/aufgaben") && !anon && me.features?.includes("tasks")) return <><h1>Aufgaben</h1><TaskBoard /></>;
+  if (p.startsWith("/aufgaben") && !anon && me.features?.includes("tasks")) return <><h1>{tr("Aufgaben")}</h1><TaskBoard /></>;
   if (p.startsWith("/n/") && id) return <NodeView key={id} id={id} onSelect={(nid) => go(nid ? `/n/${nid}` : "/wiki")} onChanged={changed} />;
   if (p.startsWith("/anwender")) return <Faq onSelect={(nid) => go(`/n/${nid}`)} />;
   if (p.startsWith("/wiki")) {
     return (
       <>
-        <h1>Wiki</h1>
-        <p className="muted">Bereiche außerhalb der Teams. Links den Ordnerbaum nutzen (Rechtsklick legt Neues an, Strg-Klick öffnet in einem neuen Tab).</p>
+        <h1>{tr("Wiki")}</h1>
+        <p className="muted">{tr("Bereiche außerhalb der Teams. Links den Ordnerbaum nutzen (Rechtsklick legt Neues an, Strg-Klick öffnet in einem neuen Tab).")}</p>
       </>
     );
   }
   const home = homeExtension(me);
   return (
     <>
-      <h1>Übersicht</h1>
+      <h1>{tr("Übersicht")}</h1>
       {home?.render()}
       <div className="ov-grid">
-        {me.features?.includes("tasks") && <section className="ov-box"><h2>Meine Aufgaben</h2><TaskBoard compact go={go} /></section>}
+        {me.features?.includes("tasks") && <section className="ov-box"><h2>{tr("Meine Aufgaben")}</h2><TaskBoard compact go={go} /></section>}
         <Recent />
         <section className="ov-box ov-wide"><Dashboard /></section>
       </div>

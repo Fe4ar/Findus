@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { api, ApiError, Me } from "./api";
+import { tr } from "./i18n";
 
 /** Old password once, new password twice. Shared by the profile menu and by the start admin's forced change. */
 function Fields({ forced, onDone }: { forced: boolean; onDone: (me: Me) => void }) {
@@ -18,7 +19,7 @@ function Fields({ forced, onDone }: { forced: boolean; onDone: (me: Me) => void 
       const body = x instanceof ApiError ? (x.body as Record<string, unknown> | undefined) : undefined;
       const pick = (k: string) => { const v = body?.[k]; return Array.isArray(v) ? v.join(" ") : typeof v === "string" ? v : ""; };
       const found = { old: pick("old"), new: pick("new"), new2: pick("new2") };
-      setErrors(found.old || found.new || found.new2 ? found : { form: x instanceof ApiError ? x.message : "Passwort konnte nicht geändert werden." });
+      setErrors(found.old || found.new || found.new2 ? found : { form: x instanceof ApiError ? x.message : tr("Passwort konnte nicht geändert werden.") });
     } finally { setBusy(false); }
   };
   const field = (label: string, value: string, set: (v: string) => void, key: string, auto: string, first = false) => (
@@ -30,12 +31,12 @@ function Fields({ forced, onDone }: { forced: boolean; onDone: (me: Me) => void 
   );
   return (
     <form onSubmit={submit} className="password-form">
-      {forced && <p className="muted">Du bist mit dem Startpasswort angemeldet. Lege jetzt ein eigenes Passwort fest; erst danach geht es weiter.</p>}
-      {field(forced ? "Startpasswort" : "Bisheriges Passwort", old, setOld, "old", "current-password", true)}
-      {field("Neues Passwort", fresh, setFresh, "new", "new-password")}
-      {field("Neues Passwort wiederholen", again, setAgain, "new2", "new-password")}
+      {forced && <p className="muted">{tr("Du bist mit dem Startpasswort angemeldet. Lege jetzt ein eigenes Passwort fest; erst danach geht es weiter.")}</p>}
+      {field(forced ? tr("Startpasswort") : tr("Bisheriges Passwort"), old, setOld, "old", "current-password", true)}
+      {field(tr("Neues Passwort"), fresh, setFresh, "new", "new-password")}
+      {field(tr("Neues Passwort wiederholen"), again, setAgain, "new2", "new-password")}
       {errors.form && <p className="error" role="alert">{errors.form}</p>}
-      <button type="submit" className="primary" disabled={busy || !old || !fresh || !again}>{forced ? "Passwort festlegen" : "Passwort ändern"}</button>
+      <button type="submit" className="primary" disabled={busy || !old || !fresh || !again}>{forced ? tr("Passwort festlegen") : tr("Passwort ändern")}</button>
     </form>
   );
 }
@@ -45,9 +46,9 @@ export function ForcedPassword({ onDone, onLogout }: { onDone: (me: Me) => void;
   return (
     <main className="login">
       <div className="password-forced">
-        <h1><img src="/findus.svg" alt="" />Neues Passwort festlegen</h1>
+        <h1><img src="/findus.svg" alt="" />{tr("Neues Passwort festlegen")}</h1>
         <Fields forced onDone={onDone} />
-        <p><button type="button" className="link" onClick={onLogout}>Abmelden</button></p>
+        <p><button type="button" className="link" onClick={onLogout}>{tr("Abmelden")}</button></p>
       </div>
     </main>
   );
@@ -60,9 +61,9 @@ export function PasswordDialog({ onClose, onDone }: { onClose: () => void; onDon
   useEffect(() => ref.current?.showModal(), []);
   return (
     <dialog ref={ref} className="dialog modal" aria-labelledby="pw-title" onClose={onClose}>
-      <h2 id="pw-title">Passwort ändern</h2>
-      {saved ? <p role="status">Dein Passwort wurde geändert.</p> : <Fields forced={false} onDone={(m) => { setSaved(true); onDone(m); }} />}
-      <div className="actions"><span className="spacer" /><button onClick={() => ref.current?.close()}>{saved ? "Schließen" : "Abbrechen"}</button></div>
+      <h2 id="pw-title">{tr("Passwort ändern")}</h2>
+      {saved ? <p role="status">{tr("Dein Passwort wurde geändert.")}</p> : <Fields forced={false} onDone={(m) => { setSaved(true); onDone(m); }} />}
+      <div className="actions"><span className="spacer" /><button onClick={() => ref.current?.close()}>{saved ? tr("Schließen") : tr("Abbrechen")}</button></div>
     </dialog>
   );
 }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, ApiError, NodeDetail } from "./api";
 import { useDirty } from "./Tabs";
 import { notify } from "./Dialog";
+import { tr } from "./i18n";
 
 // Self-hosted draw.io (container "drawio", Caddy path /drawio/ of the same host, so it also works behind NPM).
 // stealth=1 turns off every feature that calls external services.
@@ -29,11 +30,11 @@ export function DrawioView({ fileId }: { fileId: string }) {
     api<NodeDetail>(`/api/nodes/${fileId}`)
       .then(async (n) => {
         const v = n.versions?.[0];
-        if (!v) throw new Error("Schaubild hat keine Version.");
+        if (!v) throw new Error(tr("Schaubild hat keine Version."));
         const text = await (await fetch(v.url, { credentials: "same-origin" })).text();
         if (alive) { setNode(n); setXml(text); }
       })
-      .catch((e) => alive && setError(e instanceof ApiError && e.status === 404 ? "Schaubild nicht gefunden." : e.message));
+      .catch((e) => alive && setError(e instanceof ApiError && e.status === 404 ? tr("Schaubild nicht gefunden.") : e.message));
     return () => { alive = false; };
   }, [fileId]);
 
@@ -52,10 +53,10 @@ export function DrawioView({ fileId }: { fileId: string }) {
           const n = await saveDrawio(node.id, msg.xml, node.versions?.[0]?.original_name ?? node.title);
           setNode(n);
           setXml(msg.xml);
-          post({ action: "status", message: "Gespeichert", modified: false });
+          post({ action: "status", message: tr("Gespeichert"), modified: false });
           if (msg.exit) setEditing(false);
         } catch (e) {
-          notify(e instanceof ApiError ? e.message : "Speichern fehlgeschlagen.");
+          notify(e instanceof ApiError ? e.message : tr("Speichern fehlgeschlagen."));
         }
       } else if (msg.event === "exit") setEditing(false);
     };
@@ -66,16 +67,16 @@ export function DrawioView({ fileId }: { fileId: string }) {
   // The static demo has no draw.io server behind it.
   if (import.meta.env.VITE_DEMO) return <p className="muted">Schaubild „{node?.title ?? ""}“: draw.io ist in der statischen Demo nicht enthalten.</p>;
   if (error) return <p className="error" role="alert">{error}</p>;
-  if (!node || xml === null) return <p className="muted">Lade Schaubild …</p>;
+  if (!node || xml === null) return <p className="muted">{tr("Lade Schaubild …")}</p>;
   const src = DRAWIO + "?" + PARAMS + (editing ? "&saveAndExit=1&noSaveBtn=0" : "&chrome=0&nav=1&toolbar=zoom");
   return (
     <figure className={editing ? "drawio editing" : "drawio"}>
       {/* Same host as Findus since /drawio/, so the sandbox (no allow-same-origin) keeps draw.io away from the Findus session. */}
-      <iframe key={String(editing)} ref={frame} src={src} title={`Schaubild ${node.title}`}
+      <iframe key={String(editing)} ref={frame} src={src} title={tr("Schaubild {title}", { title: node.title })}
         sandbox="allow-scripts allow-popups allow-downloads allow-modals allow-forms" />
       <figcaption className="actions">
         <a href={`/n/${node.id}`} className="muted">{node.title}</a>
-        {!editing && node.permissions.write && <button onClick={() => setEditing(true)}>Bearbeiten</button>}
+        {!editing && node.permissions.write && <button onClick={() => setEditing(true)}>{tr("Bearbeiten")}</button>}
       </figcaption>
     </figure>
   );

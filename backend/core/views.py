@@ -218,6 +218,7 @@ def me_data(user):
             "can_download": can_download(user), "collabora": bool(settings.COLLABORA_UPSTREAM), "features": sorted(enabled(user)), "nav": nav_data(user), "todoist": IntegrationSettings.allowed(), "idle_logout_minutes": IntegrationSettings.idle_minutes(), "teams": [{"id": m.team_id, "name": m.team.name, "leader": m.is_leader, "can_write": m.is_leader or m.can_write}
                       for m in user.team_memberships.select_related("team")],
             "theme": getattr(getattr(user, "findus_settings", None), "theme", "auto"),
+            "language": getattr(getattr(user, "findus_settings", None), "language", "de"),
             "must_change_password": bool(getattr(getattr(user, "findus_settings", None), "must_change_password", False))}
 
 
@@ -260,10 +261,16 @@ def auth_password(request):
 def auth_settings(request):
     if not request.user.is_authenticated:
         raise PermissionDenied()
-    theme = request.data.get("theme")
-    if theme not in dict(UserSettings.THEMES):
-        raise ValidationError({"theme": "auto, light oder dark."})
-    UserSettings.objects.update_or_create(user=request.user, defaults={"theme": theme})
+    d, values = request.data, {}
+    if "theme" in d or "language" not in d:
+        if d.get("theme") not in dict(UserSettings.THEMES):
+            raise ValidationError({"theme": "auto, light oder dark."})
+        values["theme"] = d["theme"]
+    if "language" in d:
+        if d["language"] not in dict(UserSettings.LANGUAGES):
+            raise ValidationError({"language": "de oder en."})
+        values["language"] = d["language"]
+    UserSettings.objects.update_or_create(user=request.user, defaults=values)
     request.user.refresh_from_db()
     return Response(me_data(request.user))
 
