@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
-import { api, ApiError, Kind, NodeSummary } from "./api";
+import { api, ApiError, Kind, NodeDetail, NodeSummary } from "./api";
 import { wantsNewTab } from "./Tabs";
 import { ask, confirmDialog, notify } from "./Dialog";
 import { Icon } from "./Icons";
@@ -14,17 +14,18 @@ function KindIcon({ kind }: { kind: Kind }) {
     : <span aria-hidden="true">{EMOJI[kind]}</span>;
 }
 
-// Folds are remembered per user (not per session), as a list of open node ids.
+// Which folders are open is remembered per browser session (sessionStorage, per user) as a list of node ids: a fresh session starts
+// with every folder closed, opening a folder never opens its sub folders by itself, and what the user opened earlier stays open.
 let treeUser = "";
 const openKey = () => `findus-tree-open:${treeUser}`;
 function loadOpen(): Set<string> {
-  try { return new Set(JSON.parse(localStorage.getItem(openKey()) ?? "[]")); } catch { return new Set(); }
+  try { return new Set(JSON.parse(sessionStorage.getItem(openKey()) ?? "[]")); } catch { return new Set(); }
 }
 function storeOpen(id: string, open: boolean) {
   try {
     const s = loadOpen();
     open ? s.add(id) : s.delete(id);
-    localStorage.setItem(openKey(), JSON.stringify([...s]));
+    sessionStorage.setItem(openKey(), JSON.stringify([...s]));
   } catch { /* storage unavailable */ }
 }
 const isContainer = (k: Kind) => k === "area" || k === "folder";
@@ -80,6 +81,17 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
     api<NodeSummary[]>("/api/tree?space=wiki").then((l) => setVis(l.find((n) => n.id === rootId)?.vis)).catch(() => undefined);
   }, [head, rootId, version]);
   const [incoming, setIncoming] = useState<NodeSummary[]>([]);
+  const [reveal, setReveal] = useState(0); // the path to the selected page is opened (and only that path)
+  useEffect(() => {
+    if (!selected) return;
+    let stale = false;
+    api<NodeDetail>(`/api/nodes/${selected}`).then((n) => {
+      if (stale) return;
+      const path = (n.breadcrumb ?? []).map((b) => b.id).filter((id) => id !== selected);
+      if (path.some((id) => !loadOpen().has(id))) { path.forEach((id) => storeOpen(id, true)); setReveal((v) => v + 1); }
+    }).catch(() => undefined);
+    return () => { stale = true; };
+  }, [selected]);
   const [headDrop, setHeadDrop] = useState(false); // dragging over the team name: the item goes to the very top of the team
   // Folders other teams shared with the user's teams, below the team's own tree.
   useEffect(() => {
@@ -166,7 +178,7 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
           )}
         </div>
       )}
-      <Branch parent={rootId ?? null} scope={scope} space={space} depth={0} selected={selected} onSelect={onSelect} version={version}
+      <Branch parent={rootId ?? null} scope={scope} space={space} depth={0} selected={selected} onSelect={onSelect} version={version} reveal={reveal}
         onMenu={setMenu} onMove={move} onReorder={reorder} onOpenTab={onOpenTab} dots={!!head} />
       {canCreateRoot && !head && topKinds.map((k) => (
         <button key={k} className="tree-add" onClick={() => create(k, rootNode)}>+ {tr(NEW_LABEL[k])}</button>
@@ -267,6 +279,7 @@ interface BranchProps {
   onReorder: (id: string, before: string | null, parent?: string | null) => void;
   onOpenTab?: (id: string) => void;
   dots?: boolean; // visibility as a dot only (the team head already says who may see the area)
+  reveal?: number; // bumped when the path to the selected page was opened (open folders are re-read)
 }
 
 function Branch({ parent, space = "wiki", scope, ...rest }: BranchProps) {
@@ -292,8 +305,9 @@ function Branch({ parent, space = "wiki", scope, ...rest }: BranchProps) {
   );
 }
 
-function Item({ node, depth, selected, onSelect, version, onMenu, onMove, onReorder, onOpenTab, dots, parentId, up, down, next }: { node: NodeSummary; parentId?: string | null; up?: string | null; down?: string | null; next?: string | null } & Omit<BranchProps, "parent" | "space">) {
+function Item({ node, depth, selected, onSelect, version, onMenu, onMove, onReorder, onOpenTab, dots, parentId, up, down, next, reveal }: { node: NodeSummary; parentId?: string | null; up?: string | null; down?: string | null; next?: string | null } & Omit<BranchProps, "parent" | "space">) {
   const [open, setOpen] = useState(() => loadOpen().has(node.id));
+  useEffect(() => { if (reveal && loadOpen().has(node.id)) setOpen(true); }, [reveal]); // eslint-disable-line react-hooks/exhaustive-deps
   const [dropTarget, setDropTarget] = useState(false);
   const [gap, setGap] = useState<"before" | "after" | null>(null); // dropping next to this row: reorder inside the folder
   const container = isContainer(node.kind);
@@ -367,7 +381,7 @@ function Item({ node, depth, selected, onSelect, version, onMenu, onMove, onReor
           : <span className={`vis-dot vis-${node.vis.kind}`} title={trs(node.vis.text)} role="img" aria-label={trs(node.vis.text)} />)}
       </div>
       {container && open && (
-        <Branch parent={node.id} depth={depth + 1} selected={selected} onSelect={onSelect} version={version}
+        <Branch parent={node.id} depth={depth + 1} selected={selected} onSelect={onSelect} version={version} reveal={reveal}
           onMenu={onMenu} onMove={onMove} onReorder={onReorder} onOpenTab={onOpenTab} dots={dots} />
       )}
     </li>

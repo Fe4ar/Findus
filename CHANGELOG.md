@@ -2,6 +2,11 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.8.15] - 2026-11-11
+
+### Changed
+- The wiki tree stays tidy: which folders are open is remembered for the browser session only, a fresh session starts with everything closed, and opening a folder shows just its direct level (sub folders stay closed unless you opened them earlier in the same session). Opening a page from a link or search opens only the path to it in the tree
+
 ## [0.8.14] - 2026-11-11
 
 ### Added
