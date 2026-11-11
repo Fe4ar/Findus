@@ -2,6 +2,11 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.8.8] - 2026-11-11
+
+### Changed
+- The personal area ("Privat") has the same sidebar head as a team: icon, name, the marker "Nur du" and the "+" menu for a new folder or page, instead of the large buttons at the bottom. Rights are unchanged
+
 ## [0.8.7] - 2026-11-11
 
 ### Added

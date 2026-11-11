@@ -71,10 +71,11 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
   const [importing, setImporting] = useState<NodeSummary | null>(null);
   const [sharing, setSharing] = useState<NodeSummary | null>(null);
   const [plus, setPlus] = useState<{ x: number; y: number } | null>(null);
+  const privateHead = incomingKind === "user"; // the personal area gets the same head as a team ("Nur du" instead of "Nur IT")
   const [vis, setVis] = useState<NodeSummary["vis"]>();
   // The team head shows who may see the team's area ("Nur IT"), taken from the area's entry in the top-level list.
   useEffect(() => {
-    if (!head || !rootId) return;
+    if (!head || !rootId || privateHead) return;
     api<NodeSummary[]>("/api/tree?space=wiki").then((l) => setVis(l.find((n) => n.id === rootId)?.vis)).catch(() => undefined);
   }, [head, rootId, version]);
   const [incoming, setIncoming] = useState<NodeSummary[]>([]);
@@ -153,9 +154,11 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
           onDragLeave={() => setHeadDrop(false)}
           onDrop={(e) => { setHeadDrop(false); const id = e.dataTransfer.getData("text/x-node"); if (rootId && id) { e.preventDefault(); reorder(id, null, rootId, true); } }}>
           <button className="tree-head-name" onClick={() => onSelect(null)} title={head}>
-            <Icon name="users" size={16} /><span className="label-text">{head}</span>
+            <Icon name={privateHead ? "lock" : "users"} size={16} /><span className="label-text">{head}</span>
           </button>
-          {vis && vis.kind !== "public" && <span className={`vis-badge vis-${vis.kind}`} title={vis.text}>{vis.badge}</span>}
+          {privateHead
+            ? <span className="vis-badge vis-private" title="Nur du siehst diesen Bereich">Nur du</span>
+            : vis && vis.kind !== "public" && <span className={`vis-badge vis-${vis.kind}`} title={vis.text}>{vis.badge}</span>}
           {canCreateRoot && (
             <button className="tree-plus" aria-label="Neu anlegen" aria-haspopup="menu" aria-expanded={!!plus} title="Neuer Ordner oder neue Seite"
               onClick={(e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setMenu(null); setPlus(plus ? null : { x: r.left, y: r.bottom + 4 }); }}>+</button>

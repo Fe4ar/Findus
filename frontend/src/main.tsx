@@ -342,8 +342,8 @@ function App() {
         <nav className="sidebar" aria-label={team ? teamLabel(team.name) : section === "private" ? "Privat" : section === "faq" ? "Alle Anwender" : "Ordnerbaum"}>
           <Tree key={section} selected={selectedId} version={treeVersion} onChanged={changed} user={user ?? ""} canExport={!!me.can_download}
             onSelect={(id) => go(id ? `/n/${id}` : team ? `/n/${team.area}` : section === "private" ? `/n/${me.nav?.private}` : section === "faq" ? "/anwender" : "/wiki")}
-            rootId={team?.area ?? (section === "private" ? me.nav?.private ?? undefined : undefined)} head={team ? teamLabel(team.name) : undefined} incoming={team ? "team" : section === "private" ? "user" : undefined} scope={section === "faq" ? "public" : section === "wiki" ? "other" : undefined}
-            canCreateRoot={team ? team.write : section === "private" ? false : section === "faq" ? false : !!me.can_create_area}
+            rootId={team?.area ?? (section === "private" ? me.nav?.private ?? undefined : undefined)} head={team ? teamLabel(team.name) : section === "private" ? "Mein Bereich" : undefined} incoming={team ? "team" : section === "private" ? "user" : undefined} scope={section === "faq" ? "public" : section === "wiki" ? "other" : undefined}
+            canCreateRoot={team ? team.write : section === "private" ? !!me.nav?.private : section === "faq" ? false : !!me.can_create_area}
             onOpenTab={(id) => openTab(`/n/${id}`)} />
         </nav>
       )}
