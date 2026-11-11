@@ -2,6 +2,11 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.8.16] - 2026-11-11
+
+### Added
+- Nested shortcut folders: groups can hold groups (up to 3 levels). Drag a folder onto another one to put it inside (upper or lower edge = reorder next to it, dropping on the category = back to the top level), "+ Group" creates a sub group, deleting a folder moves its sub groups and shortcuts one level up. Open folders are remembered for the browser session, opening a folder never opens its sub folders. The search looks through all levels and opens just the path to the hits. Migration 0034 adds the parent folder
+
 ## [0.8.15] - 2026-11-11
 
 ### Changed

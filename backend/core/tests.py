@@ -2553,3 +2553,42 @@ def test_dashboard_shortcut_folders(admin, db):
     tf = lc.post("/api/dashboard/folders", {"category": tc, "name": "Intern"}, format="json")
     assert tf.status_code == 201 and bc.post("/api/dashboard/folders", {"category": tc, "name": "x"}, format="json").status_code == 404
     assert [x["name"] for x in [c for c in bc.get("/api/dashboard").json()["categories"] if c["id"] == tc][0]["folders"]] == ["Intern"]
+
+
+def test_dashboard_nested_shortcut_folders(db):
+    from .models import Shortcut, ShortcutFolder
+    a, ac = _member("ann"); b, bc = _member("bob")
+    cat = ac.post("/api/dashboard/categories", {"name": "Server"}, format="json").json()["id"]
+    mk = lambda **kw: ac.post("/api/dashboard/folders", {"category": cat, **kw}, format="json")
+    f1 = mk(name="Netz").json()["id"]
+    f2 = mk(name="Switche", parent=f1).json()["id"]
+    f3 = mk(name="Access", parent=f2).json()["id"]
+    r = mk(name="Zu tief", parent=f3)
+    assert r.status_code == 400 and "Ebenen" in str(r.json())  # 3 levels at most
+    sc = ac.post("/api/dashboard/shortcuts", {"category": cat, "name": "SW1", "url": "http://sw1.example", "folder": f3}, format="json").json()["id"]
+    folders = {f["name"]: f["parent"] for f in [c for c in ac.get("/api/dashboard").json()["categories"] if c["id"] == cat][0]["folders"]}
+    assert folders == {"Netz": None, "Switche": f1, "Access": f2}
+    # Moves: not into itself or its own subtree, depth is checked for the whole subtree, other categories refused.
+    assert ac.patch(f"/api/dashboard/folders/{f1}", {"parent": f3}, format="json").status_code == 400
+    assert ac.patch(f"/api/dashboard/folders/{f1}", {"parent": f1}, format="json").status_code == 400
+    other = mk(name="Zweiter").json()["id"]
+    assert ac.patch(f"/api/dashboard/folders/{f1}", {"parent": other}, format="json").status_code == 400  # f1 has 3 levels, other is level 1
+    assert ac.patch(f"/api/dashboard/folders/{f3}", {"parent": other}, format="json").status_code == 200
+    assert ac.patch(f"/api/dashboard/folders/{f3}", {"parent": None}, format="json").status_code == 200 and ShortcutFolder.objects.get(pk=f3).parent_id is None
+    other_cat = ac.post("/api/dashboard/categories", {"name": "Anderes"}, format="json").json()["id"]
+    foreign = ac.post("/api/dashboard/folders", {"category": other_cat, "name": "X"}, format="json").json()["id"]
+    assert ac.patch(f"/api/dashboard/folders/{f2}", {"parent": foreign}, format="json").status_code == 400
+    # Drag and drop result: new tree with sibling order.
+    tree = [{"id": other, "parent": None}, {"id": f1, "parent": None}, {"id": f2, "parent": other}, {"id": f3, "parent": f2}]
+    assert ac.put("/api/dashboard/order", {"folder_tree": {str(cat): tree}}, format="json").status_code == 200
+    got = {f.name: (f.parent_id, f.position) for f in ShortcutFolder.objects.filter(category_id=cat)}
+    assert got == {"Zweiter": (None, 0), "Netz": (None, 1), "Switche": (other, 0), "Access": (f2, 0)}
+    # Deleting a folder moves its sub folders and shortcuts one level up.
+    ac.patch(f"/api/dashboard/shortcuts/{sc}", {"folder": f2}, format="json")
+    assert ac.delete(f"/api/dashboard/folders/{f2}").status_code == 204
+    assert ShortcutFolder.objects.get(pk=f3).parent_id == other and Shortcut.objects.get(pk=sc).folder_id == other
+    assert ac.delete(f"/api/dashboard/folders/{other}").status_code == 204
+    assert ShortcutFolder.objects.get(pk=f3).parent_id is None and Shortcut.objects.get(pk=sc).folder_id is None
+    # Others cannot touch them.
+    assert bc.post("/api/dashboard/folders", {"category": cat, "name": "x", "parent": f1}, format="json").status_code == 404
+    assert bc.patch(f"/api/dashboard/folders/{f1}", {"parent": None}, format="json").status_code == 404

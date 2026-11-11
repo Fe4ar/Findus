@@ -1071,3 +1071,9 @@ body.side-dragging { cursor: col-resize; user-select: none; }
 .dash-folder.open .folder-toggle .icon { transform: rotate(90deg); }
 .dash-folder .tiles { margin-top: var(--space-1); }
 .dashboard.editing .dash-folder-head[draggable="true"] { cursor: grab; }
+
+/* v0.8.16: nested shortcut folders */
+.dash-folder .dash-folder { background: var(--surface); }
+.dash-folder.drop-before { box-shadow: 0 -2px 0 var(--accent); }
+.dash-folder.drop-after { box-shadow: 0 2px 0 var(--accent); }
+.dash-folder.drop-into { outline: 2px solid var(--accent); outline-offset: -2px; }

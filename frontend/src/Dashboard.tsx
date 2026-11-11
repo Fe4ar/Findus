@@ -6,12 +6,13 @@ import { tr } from "./i18n";
 
 // Personal dashboard: global shortcuts (admins), one category per team (leaders) and the user's own categories.
 // Own categories and shortcuts can be reordered and moved by drag & drop; the order is stored per user.
-// A category can hold folders (collapsible, the open/closed state is remembered per browser); searching opens the folders with hits.
-const COLLAPSED_KEY = "findus-dash-folders-collapsed";
-const loadCollapsed = (): Set<number> => { try { return new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? "[]")); } catch { return new Set(); } };
-
+// A category can hold folders, nested up to MAX_DEPTH levels. Which folders are open is remembered for the browser session (default: closed);
+// opening a folder never opens its sub folders. Searching shows the path to the hits (folders without hits are hidden).
+const OPEN_KEY = "findus-dash-folders-open";
+const loadOpen = (): Set<number> => { try { return new Set(JSON.parse(sessionStorage.getItem(OPEN_KEY) ?? "[]")); } catch { return new Set(); } };
 interface Shortcut { id: number; name: string; url: string; icon: string; description: string; online: boolean | null; folder: number | null }
-interface Folder { id: number; name: string; icon: string }
+interface Folder { id: number; name: string; icon: string; parent: number | null }
+const MAX_DEPTH = 3; // nested folders: levels below a category (the server enforces the same)
 interface Category { id: number; name: string; kind: "global" | "team" | "user"; team: string | null; team_id: number | null; editable: boolean; folders: Folder[]; shortcuts: Shortcut[] }
 interface Data { categories: Category[]; teams: { id: number; name: string }[]; is_admin: boolean }
 
@@ -34,9 +35,10 @@ export function Dashboard() {
   const [editing, setEditing] = useState(false);
   const [q, setQ] = useState(""); // live filter of the shortcuts (name, description, address); off while editing so reordering stays unambiguous
   const [form, setForm] = useState<{ cat: Category; sc?: Shortcut; folder?: number | null } | null>(null);
-  const [collapsed, setCollapsed] = useState<Set<number>>(loadCollapsed);
-  const toggleFolder = (id: number) => setCollapsed((c) => { const n = new Set(c); n.has(id) ? n.delete(id) : n.add(id); try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...n])); } catch { /* not remembered */ } return n; });
-  const drag = useRef<{ sc?: Shortcut; cat?: Category; folder?: Folder; fromCat?: Category } | null>(null);
+  const [openIds, setOpenIds] = useState<Set<number>>(loadOpen);
+  const setFolderOpen = (id: number, open: boolean) => setOpenIds((c) => { const n = new Set(c); open ? n.add(id) : n.delete(id); try { sessionStorage.setItem(OPEN_KEY, JSON.stringify([...n])); } catch { /* not remembered */ } return n; });
+  const [hint, setHint] = useState<{ id: number; mode: "before" | "after" | "into" } | null>(null); // drop position shown on a folder head
+  const drag = useRef<{ sc?: Shortcut; cat?: Category; folder?: Folder } | null>(null);
   const load = useCallback(() => api<Data>("/api/dashboard").then(setData).catch(() => setError(tr("Dienste konnten nicht geladen werden."))), []);
   useEffect(() => { load(); }, [load]);
 
@@ -50,7 +52,7 @@ export function Dashboard() {
     api("/api/dashboard/order", { method: "PUT", body: {
       categories: mine.map((c) => c.id),
       shortcuts: Object.fromEntries(mine.map((c) => [c.id, c.shortcuts.filter((s) => s.folder == null).map((s) => s.id)])),
-      folders: Object.fromEntries(mine.map((c) => [c.id, c.folders.map((f) => f.id)])),
+      folder_tree: Object.fromEntries(mine.map((c) => [c.id, c.folders.map((f) => ({ id: f.id, parent: f.parent }))])),
       folder_shortcuts: Object.fromEntries(mine.flatMap((c) => c.folders.map((f) => [f.id, c.shortcuts.filter((s) => s.folder === f.id).map((s) => s.id)]))),
     } }).catch(err);
   };
@@ -64,18 +66,29 @@ export function Dashboard() {
       if (c.id === to.id) { const i = before ? list.findIndex((s) => s.id === before.id) : list.length; list = [...list.slice(0, i), moved, ...list.slice(i)]; }
       return { ...c, shortcuts: list };
     });
-    if (folder && collapsed.has(folder.id)) toggleFolder(folder.id);
+    if (folder) setFolderOpen(folder.id, true);
     saveOrder(cats);
   };
-  const moveFolder = (f: Folder, cat: Category, before?: Folder) => {
-    if (!cat.folders.some((x) => x.id === f.id) || (before && before.id === f.id)) return;
+  const subtree = (cat: Category, id: number): number[] => [id, ...cat.folders.filter((x) => x.parent === id).flatMap((x) => subtree(cat, x.id))];
+  const depthOf = (cat: Category, id: number | null): number => (id == null ? 0 : 1 + depthOf(cat, cat.folders.find((x) => x.id === id)?.parent ?? null));
+  const heightOf = (cat: Category, id: number): number => 1 + Math.max(0, ...cat.folders.filter((x) => x.parent === id).map((x) => heightOf(cat, x.id)));
+  // Drops a folder next to a folder ("before"/"after", same parent) or into it ("into"), or onto the category level (target undefined).
+  const moveFolder = (f: Folder, cat: Category, target?: Folder, mode: "before" | "after" | "into" = "into") => {
+    if (!cat.folders.some((x) => x.id === f.id) || (target && target.id === f.id)) return;
+    const parent = !target ? null : mode === "into" ? target.id : target.parent;
+    if (parent != null && subtree(cat, f.id).includes(parent)) return notify(tr("Ein Ordner kann nicht in sich selbst verschoben werden."));
+    if (depthOf(cat, parent) + heightOf(cat, f.id) > MAX_DEPTH) return notify(tr("Höchstens {n} Ebenen.", { n: MAX_DEPTH }));
     const rest = cat.folders.filter((x) => x.id !== f.id);
-    rest.splice(before ? rest.findIndex((x) => x.id === before.id) : rest.length, 0, f);
+    const moved = { ...f, parent };
+    let at = rest.length;
+    if (target && mode !== "into") at = rest.findIndex((x) => x.id === target.id) + (mode === "after" ? 1 : 0);
+    rest.splice(at, 0, moved);
+    if (parent != null) setFolderOpen(parent, true);
     saveOrder(data.categories.map((c) => (c.id === cat.id ? { ...c, folders: rest } : c)));
   };
-  const addFolder = async (c: Category) => {
-    const name = await ask({ title: tr("Neuer Ordner"), label: tr("Name"), ok: tr("Anlegen"), validate: (v) => (v.trim() ? null : tr("Bitte einen Namen eingeben.")) });
-    if (name?.trim()) run(api("/api/dashboard/folders", { method: "POST", body: { category: c.id, name } }));
+  const addFolder = async (c: Category, parent?: Folder) => {
+    const name = await ask({ title: parent ? tr("Neue Gruppe in „{name}“", { name: parent.name }) : tr("Neuer Ordner"), label: tr("Name"), ok: tr("Anlegen"), validate: (v) => (v.trim() ? null : tr("Bitte einen Namen eingeben.")) });
+    if (name?.trim()) { if (parent) setFolderOpen(parent.id, true); run(api("/api/dashboard/folders", { method: "POST", body: { category: c.id, name, parent: parent?.id } })); }
   };
   const moveCategory = (c: Category, before: Category) => {
     if (c.kind !== "user" || before.kind !== "user" || c.id === before.id) return;
@@ -91,7 +104,11 @@ export function Dashboard() {
   // Searching looks into the folders too: folders with hits are shown (opened), folders without hits are hidden.
   const shown = !needle ? data.categories : data.categories
     .map((c) => ({ ...c, shortcuts: c.shortcuts.filter((s) => [s.name, s.description, s.url].some((v) => v.toLowerCase().includes(needle))) }))
-    .map((c) => ({ ...c, folders: c.folders.filter((f) => c.shortcuts.some((s) => s.folder === f.id)) }))
+    .map((c) => {
+      const keep = new Set<number>();  // folders holding a hit, and the folders above them
+      c.shortcuts.forEach((s) => { let id = s.folder; while (id != null && !keep.has(id)) { keep.add(id); id = c.folders.find((x) => x.id === id)?.parent ?? null; } });
+      return { ...c, folders: c.folders.filter((f) => keep.has(f.id)) };
+    })
     .filter((c) => c.shortcuts.length);
   const heading = (c: Category) => (c.kind === "team" ? tr("Team {team}: {name}", { team: c.team, name: c.name }) : c.kind === "global" ? c.name : c.name);
 
@@ -126,6 +143,7 @@ export function Dashboard() {
             if (!editing || !drag.current) return;
             e.preventDefault(); e.stopPropagation();
             if (drag.current.sc) moveShortcut(drag.current.sc, c);
+            else if (drag.current.folder) moveFolder(drag.current.folder, c);
             else if (drag.current.cat) moveCategory(drag.current.cat, c);
             drag.current = null;
           }}>
@@ -163,6 +181,53 @@ export function Dashboard() {
               </li>
             );
             const loose = c.shortcuts.filter((s) => s.folder == null);
+            const countIn = (id: number): number => c.shortcuts.filter((x) => x.folder === id).length + c.folders.filter((x) => x.parent === id).reduce((n, x) => n + countIn(x.id), 0);
+            const renderFolders = (cat: Category, parent: number | null, depth: number): JSX.Element[] => cat.folders.filter((f) => f.parent === parent).map((f) => {
+              const items = cat.shortcuts.filter((x) => x.folder === f.id);
+              const open = !!needle || openIds.has(f.id);
+              const zone = (e: React.DragEvent<HTMLElement>): "before" | "after" | "into" => {
+                // Relative to the folder's own head (the container also holds its sub groups): below the head = inside.
+                const r = (e.currentTarget.querySelector(".dash-folder-head") as HTMLElement).getBoundingClientRect(), y = (e.clientY - r.top) / r.height;
+                return y < 0.25 ? "before" : y > 1 ? "into" : y > 0.75 && !open ? "after" : "into";
+              };
+              return (
+                <div key={f.id} className={`dash-folder${open ? " open" : ""}${hint?.id === f.id ? ` drop-${hint.mode}` : ""}`} style={{ marginLeft: depth > 1 ? "var(--space-3)" : 0 }}
+                  onDragOver={(e) => { if (editing && drag.current && (drag.current.sc || drag.current.folder)) { e.preventDefault(); e.stopPropagation(); setHint({ id: f.id, mode: drag.current.folder ? zone(e) : "into" }); } }}
+                  onDragLeave={() => setHint((h) => (h?.id === f.id ? null : h))}
+                  onDrop={(e) => {
+                    if (!editing || !drag.current) return;
+                    e.preventDefault(); e.stopPropagation(); setHint(null);
+                    if (drag.current.sc) moveShortcut(drag.current.sc, cat, undefined, f);
+                    else if (drag.current.folder) moveFolder(drag.current.folder, cat, f, zone(e));
+                    drag.current = null;
+                  }}>
+                  <div className="dash-folder-head" draggable={editing && cat.editable} onDragStart={(e) => { e.stopPropagation(); drag.current = { folder: f }; }} onDragEnd={() => setHint(null)}>
+                    <button type="button" className="folder-toggle" aria-expanded={open} onClick={() => setFolderOpen(f.id, !openIds.has(f.id))}>
+                      <LineIcon name="chevron" size={14} /><span aria-hidden="true">{f.icon}</span><strong>{f.name}</strong><small className="muted">{countIn(f.id)}</small>
+                    </button>
+                    {editing && cat.editable && (
+                      <span className="cat-actions">
+                        <button onClick={() => setForm({ cat, folder: f.id })}>{tr("+ Shortcut")}</button>
+                        {depth < MAX_DEPTH && <button onClick={() => addFolder(cat, f)}>{tr("+ Gruppe")}</button>}
+                        <button onClick={async () => { const n = await ask({ title: tr("Ordner umbenennen"), label: tr("Name"), initial: f.name, ok: tr("Speichern") }); if (n?.trim()) run(api(`/api/dashboard/folders/${f.id}`, { method: "PATCH", body: { name: n } })); }}>{tr("Umbenennen")}</button>
+                        <button className="danger" onClick={async () => { if (await confirmDialog({ title: tr("Ordner „{name}“ löschen?", { name: f.name }), message: tr("Die Shortcuts darin bleiben erhalten."), ok: tr("Löschen"), danger: true })) run(api(`/api/dashboard/folders/${f.id}`, { method: "DELETE" })); }}>{tr("Löschen")}</button>
+                      </span>
+                    )}
+                  </div>
+                  {open && (
+                    <>
+                      {(items.length > 0 || !cat.folders.some((x) => x.parent === f.id)) && (
+                        <ul className="tiles">
+                          {items.map((x) => tile(x, f))}
+                          {!items.length && <li className="muted">{tr("Ordner ist leer.")}{editing && cat.editable ? " " + tr("Shortcuts hierher ziehen.") : ""}</li>}
+                        </ul>
+                      )}
+                      {renderFolders(cat, f.id, depth + 1)}
+                    </>
+                  )}
+                </div>
+              );
+            });
             return (
               <>
                 {(loose.length > 0 || !c.folders.length) && (
@@ -171,40 +236,7 @@ export function Dashboard() {
                     {!c.shortcuts.length && <li className="muted">{tr("Noch keine Shortcuts")}{editing && c.editable ? tr(" – oben „+ Shortcut“.") : "."}</li>}
                   </ul>
                 )}
-                {c.folders.map((f) => {
-                  const items = c.shortcuts.filter((s) => s.folder === f.id);
-                  const open = !!needle || !collapsed.has(f.id);
-                  return (
-                    <div key={f.id} className={`dash-folder${open ? " open" : ""}`}
-                      onDragOver={(e) => { if (editing && drag.current && (drag.current.sc || drag.current.folder)) e.preventDefault(); }}
-                      onDrop={(e) => {
-                        if (!editing || !drag.current) return;
-                        e.preventDefault(); e.stopPropagation();
-                        if (drag.current.sc) moveShortcut(drag.current.sc, c, undefined, f);
-                        else if (drag.current.folder) moveFolder(drag.current.folder, c, f);
-                        drag.current = null;
-                      }}>
-                      <div className="dash-folder-head" draggable={editing && c.editable} onDragStart={(e) => { e.stopPropagation(); drag.current = { folder: f }; }}>
-                        <button type="button" className="folder-toggle" aria-expanded={open} onClick={() => toggleFolder(f.id)}>
-                          <LineIcon name="chevron" size={14} /><span aria-hidden="true">{f.icon}</span><strong>{f.name}</strong><small className="muted">{items.length}</small>
-                        </button>
-                        {editing && c.editable && (
-                          <span className="cat-actions">
-                            <button onClick={() => setForm({ cat: c, folder: f.id })}>{tr("+ Shortcut")}</button>
-                            <button onClick={async () => { const n = await ask({ title: tr("Ordner umbenennen"), label: tr("Name"), initial: f.name, ok: tr("Speichern") }); if (n?.trim()) run(api(`/api/dashboard/folders/${f.id}`, { method: "PATCH", body: { name: n } })); }}>{tr("Umbenennen")}</button>
-                            <button className="danger" onClick={async () => { if (await confirmDialog({ title: tr("Ordner „{name}“ löschen?", { name: f.name }), message: tr("Die Shortcuts darin bleiben erhalten."), ok: tr("Löschen"), danger: true })) run(api(`/api/dashboard/folders/${f.id}`, { method: "DELETE" })); }}>{tr("Löschen")}</button>
-                          </span>
-                        )}
-                      </div>
-                      {open && (
-                        <ul className="tiles">
-                          {items.map((s) => tile(s, f))}
-                          {!items.length && <li className="muted">{tr("Ordner ist leer.")}{editing && c.editable ? " " + tr("Shortcuts hierher ziehen.") : ""}</li>}
-                        </ul>
-                      )}
-                    </div>
-                  );
-                })}
+                {renderFolders(c, null, 1)}
               </>
             );
           })()}
@@ -242,7 +274,7 @@ function ShortcutForm({ cat, sc, folder, onClose, onSaved }: { cat: Category; sc
         <label>{tr("Name")}<input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} autoFocus /></label>
         <label>{tr("Adresse")}<input value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })} /></label>
         <label>{tr("Beschreibung (optional)")}<input value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></label>
-        {cat.folders.length > 0 && <label>{tr("Ordner")}<select value={inFolder ?? ""} onChange={(e) => setInFolder(e.target.value ? Number(e.target.value) : null)}><option value="">{tr("– keiner –")}</option>{cat.folders.map((x) => <option key={x.id} value={x.id}>{x.icon} {x.name}</option>)}</select></label>}
+        {cat.folders.length > 0 && <label>{tr("Ordner")}<select value={inFolder ?? ""} onChange={(e) => setInFolder(e.target.value ? Number(e.target.value) : null)}><option value="">{tr("– keiner –")}</option>{(function list(parent: number | null, depth: number): JSX.Element[] { return cat.folders.filter((x) => x.parent === parent).flatMap((x) => [<option key={x.id} value={x.id}>{"\u00a0\u00a0".repeat(depth)}{x.icon} {x.name}</option>, ...list(x.id, depth + 1)]); })(null, 0)}</select></label>}
       </div>
       <fieldset className="icon-pick"><legend>{tr("Symbol")}</legend>
         {ICONS.map((i) => <button key={i} type="button" aria-pressed={f.icon === i} onClick={() => setF({ ...f, icon: i })}>{i}</button>)}

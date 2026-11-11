@@ -254,6 +254,8 @@ class ShortcutCategory(models.Model):
 class ShortcutFolder(models.Model):
     """A folder inside a dashboard category (same owner and rights as the category) to sort shortcuts."""
     category = models.ForeignKey(ShortcutCategory, on_delete=models.CASCADE, related_name="folders")
+    # Folders nest (dashboard.MAX_FOLDER_DEPTH levels); a folder always belongs to the same category as its parent.
+    parent = models.ForeignKey("self", null=True, blank=True, on_delete=models.CASCADE, related_name="children")
     name = models.CharField(max_length=100)
     icon = models.CharField(max_length=40, default="📁")
     position = models.IntegerField(default=0)

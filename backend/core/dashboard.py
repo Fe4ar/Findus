@@ -10,6 +10,37 @@ from .permissions import is_admin
 from .services import check_all
 
 
+MAX_FOLDER_DEPTH = 3  # folders inside folders: at most this many levels below a category
+
+
+def _depth(folder):
+    """Level of a folder: 1 = directly in the category."""
+    n = 0
+    while folder is not None:
+        n, folder = n + 1, folder.parent
+    return n
+
+
+def _height(folder):
+    """Levels of the folder's own subtree, itself included."""
+    return 1 + max((_height(c) for c in folder.children.all()), default=0)
+
+
+def _check_parent(folder, parent):
+    """The new parent (None = category level) must be in the same category, not inside the folder itself, and keep the depth limit."""
+    if parent is None:
+        return
+    if parent.category_id != folder.category_id:
+        raise ValidationError({"parent": "Der Ordner muss in derselben Kategorie bleiben."})
+    p = parent
+    while p is not None:
+        if p.pk == folder.pk:
+            raise ValidationError({"parent": "Ein Ordner kann nicht in sich selbst verschoben werden."})
+        p = p.parent
+    if _depth(parent) + (_height(folder) if folder.pk else 1) > MAX_FOLDER_DEPTH:
+        raise ValidationError({"parent": f"Höchstens {MAX_FOLDER_DEPTH} Ebenen."})
+
+
 def _may_edit(user, cat):
     if cat.user_id:
         return cat.user_id == user.id
@@ -65,7 +96,7 @@ def dashboard(request):
     return Response({"categories": [
         {"id": c.id, "name": c.name, "kind": kind(c), "team": c.team.name if c.team_id else None, "team_id": c.team_id,
          "editable": _may_edit(u, c),
-         "folders": [{"id": f.id, "name": f.name, "icon": f.icon} for f in c.folders.all()],
+         "folders": [{"id": f.id, "name": f.name, "icon": f.icon, "parent": f.parent_id} for f in c.folders.all()],
          "shortcuts": [{"id": s.id, "name": s.name, "url": s.url, "icon": s.icon, "description": s.description, "folder": s.folder_id,
                         "online": status.get(s.url)} for s in c.shortcuts.all()]} for c in cats],
         "teams": [{"id": t.id, "name": t.name} for t in Team.objects.all() if is_admin(u) or t.id in
@@ -125,9 +156,12 @@ def folder_create(request):
     name = str(request.data.get("name") or "").strip()[:100]
     if not name:
         raise ValidationError({"name": "Name fehlt."})
-    last = cat.folders.order_by("-position").first()
-    f = ShortcutFolder.objects.create(category=cat, name=name, icon=str(request.data.get("icon") or "📁").strip()[:40] or "📁",
-                                      position=last.position + 1 if last else 0)
+    parent = _folder_of(cat, request.data.get("parent"))
+    f = ShortcutFolder(category=cat, parent=parent, name=name, icon=str(request.data.get("icon") or "📁").strip()[:40] or "📁")
+    _check_parent(f, parent)
+    last = cat.folders.filter(parent=parent).order_by("-position").first()
+    f.position = last.position + 1 if last else 0
+    f.save()
     return Response({"id": f.id}, status=201)
 
 
@@ -137,7 +171,11 @@ def folder_edit(request, folder_id):
     if f is None or not _may_edit(request.user, f.category):
         raise NotFound()
     if request.method == "DELETE":
-        f.delete()  # the shortcuts stay in the category, loose
+        # Sub folders and shortcuts move up one level (into the parent folder, or loose in the category); nothing is lost.
+        with transaction.atomic():
+            f.children.update(parent=f.parent)
+            f.shortcuts.update(folder=f.parent)
+            f.delete()
         return Response(status=204)
     if "name" in request.data:
         name = str(request.data["name"] or "").strip()[:100]
@@ -146,6 +184,10 @@ def folder_edit(request, folder_id):
         f.name = name
     if "icon" in request.data:
         f.icon = str(request.data["icon"] or "📁").strip()[:40] or "📁"
+    if "parent" in request.data and (request.data["parent"] or None) != f.parent_id:
+        parent = _folder_of(f.category, request.data["parent"])
+        _check_parent(f, parent)
+        f.parent = parent
     f.save()
     return Response({"id": f.id})
 
@@ -181,8 +223,8 @@ def shortcut_edit(request, sc_id):
 @api_view(["PUT"])
 def order(request):
     """Drag & drop result – only what the user may edit:
-    {categories: [id…], shortcuts: {category id: [loose shortcut id…]}, folders: {category id: [folder id…]},
-     folder_shortcuts: {folder id: [shortcut id…]}}"""
+    {categories: [id…], shortcuts: {category id: [loose shortcut id…]}, folders: {category id: [top level folder id…]},
+     folder_tree: {category id: [{id, parent}…] all folders, siblings in their new order}, folder_shortcuts: {folder id: [shortcut id…]}}"""
     with transaction.atomic():
         for i, cid in enumerate(request.data.get("categories") or []):
             cat = ShortcutCategory.objects.select_related("team").filter(pk=cid).first()
@@ -204,6 +246,22 @@ def order(request):
                 continue
             for i, fid in enumerate(ids):
                 ShortcutFolder.objects.filter(pk=fid, category=cat).update(position=i)
+        for cid, rows in (request.data.get("folder_tree") or {}).items():
+            cat = ShortcutCategory.objects.select_related("team").filter(pk=cid).first()
+            if cat is None or not _may_edit(request.user, cat):
+                continue
+            counters = {}
+            for row in rows:
+                f = ShortcutFolder.objects.filter(pk=row.get("id"), category=cat).first()
+                if f is None:
+                    continue
+                parent = _folder_of(cat, row.get("parent"))
+                if (parent.pk if parent else None) != f.parent_id:
+                    _check_parent(f, parent)
+                    f.parent = parent
+                f.position = counters.get(f.parent_id, 0)
+                counters[f.parent_id] = f.position + 1
+                f.save(update_fields=["parent", "position"])
         for fid, ids in (request.data.get("folder_shortcuts") or {}).items():
             f = ShortcutFolder.objects.select_related("category__team").filter(pk=fid).first()
             if f is None or not _may_edit(request.user, f.category):
