@@ -14,7 +14,7 @@ export function initials(name: string) {
   return (words[0] ?? "?").slice(0, 2).toUpperCase();
 }
 
-/** Theme choice as a radio group; used in the menu, the settings dialog and for anonymous visitors. */
+/** Theme choice as a radio group; used in the menu and for anonymous visitors. */
 export function ThemeSwitch({ theme, onTheme, role = "radio" }: { theme: Theme; onTheme: (t: Theme) => void; role?: "radio" | "menuitemradio" }) {
   return (
     <div className="theme-switch" role={role === "radio" ? "radiogroup" : "group"} aria-label={tr("Darstellung")}>
@@ -53,17 +53,11 @@ interface Props {
 /** Round avatar with initials; opens the account menu (WAI-ARIA menu button: arrows, Home/End, Esc). */
 export function ProfileMenu({ me, theme, onTheme, onLang, onLogout, onMe }: Props) {
   const [open, setOpen] = useState(false);
-  const [settings, setSettings] = useState(false);
   const [integrations, setIntegrations] = useState(false);
   const [password, setPassword] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const name = me.name || me.username || "";
-  useEffect(() => {
-    const openSettings = () => setSettings(true);
-    addEventListener("findus-settings", openSettings);
-    return () => removeEventListener("findus-settings", openSettings);
-  }, []);
 
   const items = () => [...(menu.current?.querySelectorAll<HTMLElement>("[role^=menuitem]") ?? [])];
   const close = (focusButton = true) => {
@@ -113,7 +107,6 @@ export function ProfileMenu({ me, theme, onTheme, onLang, onLogout, onMe }: Prop
           <ThemeSwitch theme={theme} onTheme={onTheme} role="menuitemradio" />
           <LangSwitch onLang={onLang} role="menuitemradio" />
           <hr />
-          <button role="menuitem" tabIndex={-1} onClick={() => { close(false); setSettings(true); }}>{tr("Einstellungen")}</button>
           <button role="menuitem" tabIndex={-1} onClick={() => { close(false); setPassword(true); }}>{tr("Passwort ändern")}</button>
           {me.todoist && me.features?.includes("tasks") && (
             <button role="menuitem" tabIndex={-1} onClick={() => { close(false); setIntegrations(true); }}>{tr("Integrationen")}</button>
@@ -125,28 +118,6 @@ export function ProfileMenu({ me, theme, onTheme, onLang, onLogout, onMe }: Prop
       )}
       {password && <PasswordDialog onClose={() => { setPassword(false); button.current?.focus(); }} onDone={(m) => onMe?.(m)} />}
       {integrations && <Integrations onClose={() => { setIntegrations(false); button.current?.focus(); }} />}
-      {settings && <Settings me={me} theme={theme} onTheme={onTheme} onLang={onLang} onClose={() => { setSettings(false); button.current?.focus(); }} />}
     </div>
-  );
-}
-
-function Settings({ me, theme, onTheme, onLang, onClose }: { me: Me; theme: Theme; onTheme: (t: Theme) => void; onLang: (l: Lang) => void; onClose: () => void }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => ref.current?.showModal(), []);
-  return (
-    <dialog ref={ref} className="dialog modal" aria-labelledby="settings-title" onClose={onClose}>
-      <h2 id="settings-title">{tr("Einstellungen")}</h2>
-      <dl className="settings">
-        <dt>{tr("Name")}</dt><dd>{me.name || "–"}</dd>
-        <dt>{tr("Benutzername")}</dt><dd>{me.username}</dd>
-        <dt>{tr("Darstellung")}</dt>
-        <dd><ThemeSwitch theme={theme} onTheme={onTheme} /><small className="muted">{tr("Gilt für dein Konto auf allen Geräten.")}</small></dd>
-        <dt>{tr("Sprache")}</dt>
-        <dd><LangSwitch onLang={onLang} /><small className="muted">{tr("Gilt für dein Konto auf allen Geräten.")}</small></dd>
-      </dl>
-      <div className="actions">
-        <button className="primary" onClick={() => ref.current?.close()}>{tr("Schließen")}</button>
-      </div>
-    </dialog>
   );
 }

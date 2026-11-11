@@ -2,6 +2,11 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.8.13] - 2026-11-11
+
+### Changed
+- The profile menu no longer has a separate "Settings" entry: appearance and language are set right at the top of the menu, name and user name are shown in its header
+
 ## [0.8.12] - 2026-11-11
 
 ### Added
