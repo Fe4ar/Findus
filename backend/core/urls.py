@@ -42,6 +42,8 @@ urlpatterns = [
     path("api/dashboard", dashboard.dashboard),
     path("api/dashboard/categories", dashboard.category_create),
     path("api/dashboard/categories/<int:cat_id>", dashboard.category_edit),
+    path("api/dashboard/folders", dashboard.folder_create),
+    path("api/dashboard/folders/<int:folder_id>", dashboard.folder_edit),
     path("api/dashboard/shortcuts", dashboard.shortcut_create),
     path("api/dashboard/shortcuts/<int:sc_id>", dashboard.shortcut_edit),
     path("api/dashboard/order", dashboard.order),

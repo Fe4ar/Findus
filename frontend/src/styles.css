@@ -1061,3 +1061,13 @@ body.side-dragging { cursor: col-resize; user-select: none; }
 .login-lang { margin: var(--space-3) 0 0; text-align: center; font-size: 0.85rem; color: var(--muted); }
 .login-lang button[aria-pressed="true"] { font-weight: 700; color: var(--fg); }
 .lang-switch { margin-top: var(--space-1); }
+
+/* v0.8.14: folders inside the dashboard categories */
+.dash-folder { margin: var(--space-3) 0 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); padding: 0 var(--space-3) var(--space-2); }
+.dash-folder:not(.open) { padding-bottom: 0; }
+.dash-folder-head { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.folder-toggle { display: inline-flex; align-items: center; gap: 0.45rem; background: none; border: 0; padding: var(--space-2) 0; font: inherit; color: var(--fg); cursor: pointer; }
+.folder-toggle .icon { transition: transform 0.15s; }
+.dash-folder.open .folder-toggle .icon { transform: rotate(90deg); }
+.dash-folder .tiles { margin-top: var(--space-1); }
+.dashboard.editing .dash-folder-head[draggable="true"] { cursor: grab; }

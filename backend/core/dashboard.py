@@ -5,7 +5,7 @@ from rest_framework.decorators import api_view
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.response import Response
 
-from .models import Shortcut, ShortcutCategory, Team
+from .models import Shortcut, ShortcutCategory, ShortcutFolder, Team
 from .permissions import is_admin
 from .services import check_all
 
@@ -56,7 +56,7 @@ def dashboard(request):
     if not u.is_authenticated:
         raise NotFound()
     team_ids = set(u.team_memberships.values_list("team_id", flat=True))
-    cats = [c for c in ShortcutCategory.objects.select_related("team").prefetch_related("shortcuts")
+    cats = [c for c in ShortcutCategory.objects.select_related("team").prefetch_related("shortcuts", "folders")
             if c.user_id == u.id or c.team_id in team_ids or (c.user_id is None and c.team_id is None)]
     order = {"global": 0, "team": 1, "user": 2}
     kind = lambda c: "user" if c.user_id else "team" if c.team_id else "global"
@@ -65,7 +65,8 @@ def dashboard(request):
     return Response({"categories": [
         {"id": c.id, "name": c.name, "kind": kind(c), "team": c.team.name if c.team_id else None, "team_id": c.team_id,
          "editable": _may_edit(u, c),
-         "shortcuts": [{"id": s.id, "name": s.name, "url": s.url, "icon": s.icon, "description": s.description,
+         "folders": [{"id": f.id, "name": f.name, "icon": f.icon} for f in c.folders.all()],
+         "shortcuts": [{"id": s.id, "name": s.name, "url": s.url, "icon": s.icon, "description": s.description, "folder": s.folder_id,
                         "online": status.get(s.url)} for s in c.shortcuts.all()]} for c in cats],
         "teams": [{"id": t.id, "name": t.name} for t in Team.objects.all() if is_admin(u) or t.id in
                   set(u.team_memberships.filter(is_leader=True).values_list("team_id", flat=True))],
@@ -108,11 +109,53 @@ def category_edit(request, cat_id):
     return Response({"id": cat.id})
 
 
+def _folder_of(cat, folder_id):
+    """The folder (of this category) or None for "loose"."""
+    if not folder_id:
+        return None
+    f = ShortcutFolder.objects.filter(pk=folder_id, category=cat).first()
+    if f is None:
+        raise ValidationError({"folder": "Ordner gehört nicht zu dieser Kategorie."})
+    return f
+
+
+@api_view(["POST"])
+def folder_create(request):
+    cat = _category(request.user, request.data.get("category"))
+    name = str(request.data.get("name") or "").strip()[:100]
+    if not name:
+        raise ValidationError({"name": "Name fehlt."})
+    last = cat.folders.order_by("-position").first()
+    f = ShortcutFolder.objects.create(category=cat, name=name, icon=str(request.data.get("icon") or "📁").strip()[:40] or "📁",
+                                      position=last.position + 1 if last else 0)
+    return Response({"id": f.id}, status=201)
+
+
+@api_view(["PATCH", "DELETE"])
+def folder_edit(request, folder_id):
+    f = ShortcutFolder.objects.select_related("category__team").filter(pk=folder_id).first()
+    if f is None or not _may_edit(request.user, f.category):
+        raise NotFound()
+    if request.method == "DELETE":
+        f.delete()  # the shortcuts stay in the category, loose
+        return Response(status=204)
+    if "name" in request.data:
+        name = str(request.data["name"] or "").strip()[:100]
+        if not name:
+            raise ValidationError({"name": "Name fehlt."})
+        f.name = name
+    if "icon" in request.data:
+        f.icon = str(request.data["icon"] or "📁").strip()[:40] or "📁"
+    f.save()
+    return Response({"id": f.id})
+
+
 @api_view(["POST"])
 def shortcut_create(request):
     cat = _category(request.user, request.data.get("category"))
+    folder = _folder_of(cat, request.data.get("folder"))
     last = cat.shortcuts.order_by("-position").first()
-    s = Shortcut.objects.create(category=cat, position=last.position + 1 if last else 0, **_fields(request.data))
+    s = Shortcut.objects.create(category=cat, folder=folder, position=last.position + 1 if last else 0, **_fields(request.data))
     return Response({"id": s.id}, status=201)
 
 
@@ -128,13 +171,18 @@ def shortcut_edit(request, sc_id):
         setattr(s, k, v)
     if "category" in request.data and request.data["category"] != s.category_id:
         s.category = _category(request.user, request.data["category"])
+        s.folder = None
+    if "folder" in request.data:
+        s.folder = _folder_of(s.category, request.data["folder"])
     s.save()
     return Response({"id": s.id})
 
 
 @api_view(["PUT"])
 def order(request):
-    """Drag & drop result: {categories: [id…], shortcuts: {category id: [shortcut id…]}} – only what the user may edit."""
+    """Drag & drop result – only what the user may edit:
+    {categories: [id…], shortcuts: {category id: [loose shortcut id…]}, folders: {category id: [folder id…]},
+     folder_shortcuts: {folder id: [shortcut id…]}}"""
     with transaction.atomic():
         for i, cid in enumerate(request.data.get("categories") or []):
             cat = ShortcutCategory.objects.select_related("team").filter(pk=cid).first()
@@ -149,5 +197,20 @@ def order(request):
                 # Moves between categories are allowed only between categories of the same owner.
                 if s and _may_edit(request.user, s.category) and (s.category_id == cat.id or (
                         s.category.user_id == cat.user_id and s.category.team_id == cat.team_id)):
-                    Shortcut.objects.filter(pk=sid).update(category=cat, position=i)
+                    Shortcut.objects.filter(pk=sid).update(category=cat, folder=None, position=i)
+        for cid, ids in (request.data.get("folders") or {}).items():
+            cat = ShortcutCategory.objects.select_related("team").filter(pk=cid).first()
+            if cat is None or not _may_edit(request.user, cat):
+                continue
+            for i, fid in enumerate(ids):
+                ShortcutFolder.objects.filter(pk=fid, category=cat).update(position=i)
+        for fid, ids in (request.data.get("folder_shortcuts") or {}).items():
+            f = ShortcutFolder.objects.select_related("category__team").filter(pk=fid).first()
+            if f is None or not _may_edit(request.user, f.category):
+                continue
+            for i, sid in enumerate(ids):
+                s = Shortcut.objects.select_related("category__team").filter(pk=sid).first()
+                if s and _may_edit(request.user, s.category) and (s.category_id == f.category_id or (
+                        s.category.user_id == f.category.user_id and s.category.team_id == f.category.team_id)):
+                    Shortcut.objects.filter(pk=sid).update(category=f.category, folder=f, position=i)
     return Response({"ok": True})

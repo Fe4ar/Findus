@@ -251,8 +251,21 @@ class ShortcutCategory(models.Model):
         ordering = ["position", "id"]
 
 
+class ShortcutFolder(models.Model):
+    """A folder inside a dashboard category (same owner and rights as the category) to sort shortcuts."""
+    category = models.ForeignKey(ShortcutCategory, on_delete=models.CASCADE, related_name="folders")
+    name = models.CharField(max_length=100)
+    icon = models.CharField(max_length=40, default="📁")
+    position = models.IntegerField(default=0)
+
+    class Meta:
+        ordering = ["position", "id"]
+
+
 class Shortcut(models.Model):
     category = models.ForeignKey(ShortcutCategory, on_delete=models.CASCADE, related_name="shortcuts")
+    # Inside a folder of the category, or loose when empty; deleting the folder keeps its shortcuts (loose).
+    folder = models.ForeignKey(ShortcutFolder, null=True, blank=True, on_delete=models.SET_NULL, related_name="shortcuts")
     name = models.CharField(max_length=100)
     url = models.CharField(max_length=500)
     # An emoji, or "favicon" to show the site's own icon.

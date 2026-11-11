@@ -2512,3 +2512,44 @@ def test_language_setting_per_user(client, db):
     assert client.put("/api/auth/settings", {"theme": "dark"}, format="json").json()["language"] == "en"  # theme change keeps the language
     assert client.put("/api/auth/settings", {}, format="json").status_code == 400
     assert APIClient().put("/api/auth/settings", {"language": "en"}, format="json").status_code == 403
+
+
+def test_dashboard_shortcut_folders(admin, db):
+    from .models import Shortcut, ShortcutFolder
+    a, ac = _member("ann"); b, bc = _member("bob")
+    cat = ac.post("/api/dashboard/categories", {"name": "Server"}, format="json").json()["id"]
+    other = ac.post("/api/dashboard/categories", {"name": "Medien"}, format="json").json()["id"]
+    s1 = ac.post("/api/dashboard/shortcuts", {"category": cat, "name": "Proxmox", "url": "https://pve.example"}, format="json").json()["id"]
+    s2 = ac.post("/api/dashboard/shortcuts", {"category": cat, "name": "NAS", "url": "https://nas.example"}, format="json").json()["id"]
+    f = ac.post("/api/dashboard/folders", {"category": cat, "name": "Netz"}, format="json")
+    assert f.status_code == 201; f = f.json()["id"]
+    assert bc.post("/api/dashboard/folders", {"category": cat, "name": "x"}, format="json").status_code == 404  # not their category
+    assert ac.post("/api/dashboard/folders", {"category": cat, "name": " "}, format="json").status_code == 400
+    # Put a shortcut into the folder (PATCH and the drag & drop order call).
+    assert ac.patch(f"/api/dashboard/shortcuts/{s1}", {"folder": f}, format="json").status_code == 200
+    d = ac.get("/api/dashboard").json()["categories"]
+    mine = [c for c in d if c["id"] == cat][0]
+    assert [x["name"] for x in mine["folders"]] == ["Netz"] and {x["name"]: x["folder"] for x in mine["shortcuts"]} == {"Proxmox": f, "NAS": None}
+    assert ac.put("/api/dashboard/order", {"folder_shortcuts": {str(f): [s2, s1]}, "shortcuts": {str(cat): []}}, format="json").status_code == 200
+    assert [s.name for s in ShortcutFolder.objects.get(pk=f).shortcuts.order_by("position")] == ["NAS", "Proxmox"]
+    assert ac.put("/api/dashboard/order", {"shortcuts": {str(cat): [s1, s2]}}, format="json").status_code == 200  # back to loose
+    assert Shortcut.objects.get(pk=s1).folder_id is None
+    # A folder of another category is refused; moving to another category loosens the folder; others cannot touch it.
+    f2 = ac.post("/api/dashboard/folders", {"category": other, "name": "Filme"}, format="json").json()["id"]
+    assert ac.patch(f"/api/dashboard/shortcuts/{s1}", {"folder": f2}, format="json").status_code == 400
+    assert ac.patch(f"/api/dashboard/shortcuts/{s1}", {"folder": f}, format="json").status_code == 200
+    assert ac.patch(f"/api/dashboard/shortcuts/{s1}", {"category": other}, format="json").status_code == 200 and Shortcut.objects.get(pk=s1).folder_id is None
+    assert bc.patch(f"/api/dashboard/folders/{f}", {"name": "x"}, format="json").status_code == 404 and bc.delete(f"/api/dashboard/folders/{f}").status_code == 404
+    assert ac.patch(f"/api/dashboard/folders/{f}", {"name": "Netzwerk", "icon": "🌐"}, format="json").status_code == 200
+    # Folder order, and deleting a folder keeps its shortcuts.
+    f3 = ac.post("/api/dashboard/folders", {"category": cat, "name": "Zweit"}, format="json").json()["id"]
+    assert ac.put("/api/dashboard/order", {"folders": {str(cat): [f3, f]}}, format="json").status_code == 200
+    assert [x["name"] for x in [c for c in ac.get("/api/dashboard").json()["categories"] if c["id"] == cat][0]["folders"]] == ["Zweit", "Netzwerk"]
+    ac.patch(f"/api/dashboard/shortcuts/{s2}", {"folder": f}, format="json")
+    assert ac.delete(f"/api/dashboard/folders/{f}").status_code == 204 and Shortcut.objects.get(pk=s2).folder_id is None
+    # Team categories: only the leader edits the folders; members only see them.
+    lead, lc = _member("lea"); team = _team(admin, "Netz2", lead, [(b, False)])
+    tc = lc.post("/api/dashboard/categories", {"name": "Team", "team": team["id"]}, format="json").json()["id"]
+    tf = lc.post("/api/dashboard/folders", {"category": tc, "name": "Intern"}, format="json")
+    assert tf.status_code == 201 and bc.post("/api/dashboard/folders", {"category": tc, "name": "x"}, format="json").status_code == 404
+    assert [x["name"] for x in [c for c in bc.get("/api/dashboard").json()["categories"] if c["id"] == tc][0]["folders"]] == ["Intern"]

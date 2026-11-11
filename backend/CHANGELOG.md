@@ -2,6 +2,12 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.8.14] - 2026-11-11
+
+### Added
+- Shortcut folders on the overview: a category can hold folders (create them with "Edit" → "+ Folder", rename, delete; the shortcuts of a deleted folder stay in the category). Shortcuts are moved into folders by drag and drop or the folder field of the shortcut form; folders can be reordered by dragging and opened or closed (remembered per browser). Migration 0033 adds the folders
+- The shortcut search also looks into folders: folders with hits open automatically and show the matching shortcuts, folders without hits are hidden; an empty field shows the normal view again
+
 ## [0.8.13] - 2026-11-11
 
 ### Changed
