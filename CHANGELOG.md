@@ -2,6 +2,11 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.8.9] - 2026-11-11
+
+### Added
+- The overview has a search field above the shortcut tiles that filters them while typing, by name, description and address; an empty field shows all tiles again (switched off while editing so reordering stays unambiguous)
+
 ## [0.8.8] - 2026-11-11
 
 ### Changed

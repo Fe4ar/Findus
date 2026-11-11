@@ -27,6 +27,7 @@ export function Dashboard() {
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
+  const [q, setQ] = useState(""); // live filter of the shortcuts (name, description, address); off while editing so reordering stays unambiguous
   const [form, setForm] = useState<{ cat: Category; sc?: Shortcut } | null>(null);
   const drag = useRef<{ sc?: Shortcut; cat?: Category } | null>(null);
   const load = useCallback(() => api<Data>("/api/dashboard").then(setData).catch(() => setError("Dienste konnten nicht geladen werden.")), []);
@@ -60,6 +61,10 @@ export function Dashboard() {
     const name = await ask({ title: "Neue Kategorie", label: "Name, z. B. Server, Smart Home, Medien", ok: "Anlegen", validate: (v) => (v.trim() ? null : "Bitte einen Namen eingeben.") });
     if (name?.trim()) run(api("/api/dashboard/categories", { method: "POST", body: { name, team: team?.id } }));
   };
+  const needle = editing ? "" : q.trim().toLowerCase();
+  const shown = !needle ? data.categories : data.categories
+    .map((c) => ({ ...c, shortcuts: c.shortcuts.filter((s) => [s.name, s.description, s.url].some((v) => v.toLowerCase().includes(needle))) }))
+    .filter((c) => c.shortcuts.length);
   const heading = (c: Category) => (c.kind === "team" ? `Team ${c.team}: ${c.name}` : c.kind === "global" ? c.name : c.name);
 
   return (
@@ -67,6 +72,9 @@ export function Dashboard() {
       <div className="dash-head">
         <h2>Dienste im Netz</h2>
         <span className="spacer" />
+        {data.categories.some((c) => c.shortcuts.length > 0) && !editing && (
+          <input type="search" className="dash-search" placeholder="Shortcuts suchen …" aria-label="Shortcuts suchen" value={q} onChange={(e) => setQ(e.target.value)} />
+        )}
         <button onClick={() => setEditing(!editing)} aria-pressed={editing}>{editing ? "Fertig" : "Bearbeiten"}</button>
       </div>
       {!data.categories.length && (
@@ -81,7 +89,8 @@ export function Dashboard() {
           <button className="primary" onClick={() => { setEditing(true); addCategory(); }}>Erste Kategorie anlegen</button>
         </section>
       )}
-      {data.categories.map((c) => (
+      {needle && !shown.length && <p className="muted">Keine Shortcuts gefunden.</p>}
+      {shown.map((c) => (
         <section key={c.id} className={`dash-cat kind-${c.kind}`}
           draggable={editing && c.kind === "user"} onDragStart={(e) => { if (e.target === e.currentTarget) drag.current = { cat: c }; }}
           onDragOver={(e) => { if (editing && drag.current) e.preventDefault(); }}

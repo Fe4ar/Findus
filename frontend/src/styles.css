@@ -1040,3 +1040,7 @@ body.side-dragging { cursor: col-resize; user-select: none; }
 .link-hits button { display: flex; flex-direction: column; align-items: flex-start; gap: 0.1rem; width: 100%; padding: 0.45rem 0.7rem; background: none; border: 0; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
 .link-hits button.active, .link-hits button:hover { background: var(--surface-2); }
 .link-hits small { font-size: 0.8rem; }
+
+/* v0.8.9: shortcut search on the overview */
+.dash-search { width: min(20rem, 100%); box-sizing: border-box; }
+@media (max-width: 760px) { .dash-head { flex-wrap: wrap; } .dash-search { order: 3; flex: 1 1 100%; width: 100%; } }
