@@ -2,6 +2,12 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.8.11] - 2026-11-11
+
+### Added
+- The version number is shown next to the Findus logo for everybody (top bar and login)
+- Administration has an "Info" page: version, product and licence information and the changelog, newest version first
+
 ## [0.8.10] - 2026-11-11
 
 ### Added

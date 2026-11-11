@@ -1046,3 +1046,13 @@ body.side-dragging { cursor: col-resize; user-select: none; }
 @media (max-width: 760px) { .dash-head { flex-wrap: wrap; } .dash-search { order: 3; flex: 1 1 100%; width: 100%; } }
 
 .login .notice { margin: 0 0 var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--border); color: var(--fg); font-size: 0.92rem; }
+
+/* v0.8.11: version next to the logo, Info page */
+.brand-version { font-size: 0.7rem; font-weight: 500; letter-spacing: 0; color: var(--muted); align-self: flex-end; margin: 0 0 0.15rem 0.1rem; }
+.login h1 .brand-version { font-size: 0.8rem; align-self: flex-end; }
+.info-card .kv { display: grid; grid-template-columns: max-content 1fr; gap: 0.3rem var(--space-4); margin: var(--space-3) 0 0; }
+.info-card .kv dt { color: var(--muted); } .info-card .kv dd { margin: 0; }
+.changelog-release { margin-bottom: var(--space-3); }
+.changelog-release h3 { margin-top: 0; } .changelog-release h4 { margin: var(--space-3) 0 var(--space-1); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.changelog-release ul { margin: 0; padding-left: 1.2rem; } .changelog-release li { margin: 0.25rem 0; }
+@media (max-width: 760px) { .brand-version { display: none; } .login h1 .brand-version { display: inline; } }

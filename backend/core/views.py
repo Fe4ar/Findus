@@ -137,6 +137,21 @@ def health(request):
     return Response({"ok": True, "version": VERSION})
 
 
+@api_view(["GET"])
+def info(request):
+    """Product information and the changelog (backend/CHANGELOG.md) for the administration's Info page."""
+    if not request.user.is_authenticated:
+        raise PermissionDenied()
+    import django
+    import platform
+    try:
+        changelog = (settings.BASE_DIR / "CHANGELOG.md").read_text(encoding="utf-8")
+    except OSError:
+        changelog = ""
+    return Response({"name": "Findus", "version": VERSION, "license": "GNU AGPL v3", "repository": "https://github.com/Fe4ar/Findus",
+                     "django": django.get_version(), "python": platform.python_version(), "changelog": changelog})
+
+
 @api_view(["POST"])
 def auth_login(request):
     name = str(request.data.get("username") or "")

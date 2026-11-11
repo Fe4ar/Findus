@@ -38,6 +38,7 @@ urlpatterns = [
     path("api/recent", stats.recent),
     path("api/admin/faq-editors", stats.faq_editors),
     path("api/admin/idle-logout", admin_api.idle_logout),
+    path("api/info", views.info),
     path("api/dashboard", dashboard.dashboard),
     path("api/dashboard/categories", dashboard.category_create),
     path("api/dashboard/categories/<int:cat_id>", dashboard.category_edit),

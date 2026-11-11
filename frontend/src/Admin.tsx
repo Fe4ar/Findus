@@ -15,6 +15,7 @@ export const SECTIONS: Section[] = [
   { id: "papierkorb", label: "Papierkorb", icon: "trash", show: (m) => !!m.is_admin || !!m.teams?.some((t) => t.can_write) },
   { id: "protokoll", label: "Protokoll", icon: "clipboard", show: (m) => !!m.is_admin || lead(m) },
   { id: "system", label: "System", icon: "gear", show: (m) => !!m.is_admin },
+  { id: "info", label: "Info", icon: "info", show: (m) => !!m.is_admin || lead(m) },
 ];
 export const adminAllowed = (me: Me) => SECTIONS.some((s) => s.show(me));
 
@@ -65,6 +66,7 @@ export function Admin({ me, path, go }: { me: Me; path: string; go: (p: string) 
       {current.id === "papierkorb" && <Trash />}
       {current.id === "protokoll" && <Audit />}
       {current.id === "system" && <System />}
+      {current.id === "info" && <Info />}
     </div>
   );
 }
@@ -525,6 +527,63 @@ function Audit() {
           </div>
         </>
       )}
+    </>
+  );
+}
+
+// --- Info --------------------------------------------------------------------------------------------------
+
+interface InfoData { name: string; version: string; license: string; repository: string; django: string; python: string; changelog: string }
+interface Release { version: string; date: string; groups: { title: string; items: string[] }[] }
+
+// The changelog file is Keep-a-Changelog markdown: "## [x.y.z] - date", "### Added|Changed|Fixed", "- item" (items may have `code`).
+function parseChangelog(md: string): Release[] {
+  const out: Release[] = [];
+  for (const line of md.split("\n")) {
+    const r = line.match(/^## \[([^\]]+)\](?: - (.+))?/);
+    if (r) { out.push({ version: r[1], date: r[2] ?? "", groups: [] }); continue; }
+    const cur = out[out.length - 1];
+    if (!cur) continue;
+    const g = line.match(/^### (.+)/);
+    if (g) { cur.groups.push({ title: g[1].trim(), items: [] }); continue; }
+    const it = line.match(/^- (.+)/);
+    if (it && cur.groups.length) cur.groups[cur.groups.length - 1].items.push(it[1]);
+    else if (/^\s+\S/.test(line) && cur.groups.length && cur.groups[cur.groups.length - 1].items.length) cur.groups[cur.groups.length - 1].items[cur.groups[cur.groups.length - 1].items.length - 1] += " " + line.trim();
+  }
+  return out;
+}
+const inline = (t: string) => t.split(/(`[^`]+`)/).map((p, i) => (p.startsWith("`") ? <code key={i}>{p.slice(1, -1)}</code> : p));
+const GROUP_LABEL: Record<string, string> = { Added: "Neu", Changed: "Geändert", Fixed: "Behoben", Security: "Sicherheit", Removed: "Entfernt" };
+
+function Info() {
+  const [d, setD] = useState<InfoData | null>(null);
+  useEffect(() => { api<InfoData>("/api/info").then(setD).catch(err); }, []);
+  const releases = useMemo(() => (d ? parseChangelog(d.changelog) : []), [d]);
+  if (!d) return <p className="muted">Lade …</p>;
+  return (
+    <>
+      <article className="card info-card">
+        <h2>{d.name} <span className="chip">v{d.version}</span></h2>
+        <dl className="kv">
+          <dt>Version</dt><dd>{d.version}</dd>
+          <dt>Lizenz</dt><dd>{d.license}</dd>
+          <dt>Projekt</dt><dd><a href={d.repository} target="_blank" rel="noopener noreferrer">{d.repository.replace("https://", "")}</a></dd>
+          <dt>Django / Python</dt><dd>{d.django} / {d.python}</dd>
+        </dl>
+      </article>
+      <h2>Changelog</h2>
+      {!releases.length && <p className="muted">Kein Changelog vorhanden.</p>}
+      {releases.map((r) => (
+        <article key={r.version} className="card changelog-release">
+          <h3>Version {r.version}{r.date && <small className="muted"> · {r.date}</small>}</h3>
+          {r.groups.map((g) => (
+            <section key={g.title}>
+              <h4>{GROUP_LABEL[g.title] ?? g.title}</h4>
+              <ul>{g.items.map((t, i) => <li key={i}>{inline(t)}</li>)}</ul>
+            </section>
+          ))}
+        </article>
+      ))}
     </>
   );
 }

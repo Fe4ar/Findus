@@ -2492,3 +2492,13 @@ def test_idle_logout_rolling_session_and_setting(admin, db):
     u2, c2 = _member("ivo"); c2.get("/api/auth/me")
     from django.conf import settings
     assert Session.objects.get(session_key=c2.session.session_key).expire_date > timezone.now() + timedelta(seconds=settings.SESSION_COOKIE_AGE - 120)
+
+
+def test_info_endpoint_version_and_changelog(admin, db):
+    from .views import VERSION
+    assert APIClient().get("/api/info").status_code in (401, 403)
+    r = admin.get("/api/info").json()
+    assert r["name"] == "Findus" and r["version"] == VERSION and r["license"].startswith("GNU AGPL")
+    first = [l for l in r["changelog"].splitlines() if l.startswith("## [")][0]
+    assert first.startswith(f"## [{VERSION}]"), first  # the newest changelog entry is the running version
+    assert APIClient().get("/api/health").json()["version"] == VERSION

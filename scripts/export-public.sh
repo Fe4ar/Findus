@@ -38,6 +38,8 @@ log=$out/CHANGELOG.md
 [[ -f $log ]] || printf "# Changelog\n\nAll notable changes, newest first. Versions follow [SemVer](https://semver.org).\n" > "$log"
 { sed -n "1,/semver\.org/p" "$log"; printf "\n## [%s] - %s\n\n" "$ver" "$(date +%F)"; cat "$notes"
   sed -n "/semver\.org/,\$p" "$log" | tail -n +2; } > "$log.tmp" && mv "$log.tmp" "$log"
+# The administration's Info page reads the changelog from the backend image: keep a copy next to the code.
+[[ -d $out/backend ]] && cp "$log" "$out/backend/CHANGELOG.md"
 
 "$src/scripts/check-public.sh" "$out" || die "public check failed, nothing committed (fix and run again after: git -C $out checkout -- . && git -C $out clean -fd)"
 git -C "$out" add -A

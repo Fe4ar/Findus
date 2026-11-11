@@ -64,8 +64,17 @@ function sectionOf(path: string, nodeTab: Tab | undefined): Tab {
 // Paths a Ctrl/middle click may open as an in-app tab; everything else (downloads, admin, editors) stays native.
 const TAB_PATH = /^\/(?:$|n\/|wiki|netzwerk|karte|verwaltung|aufgaben|anwender)/;
 
+// The running version (from /api/health, the same source as VERSION), shown next to the logo for everybody.
+let versionPromise: Promise<string> | null = null;
+function useVersion() {
+  const [v, setV] = useState("");
+  useEffect(() => { versionPromise ??= api<{ version: string }>("/api/health").then((h) => h.version).catch(() => ""); versionPromise.then(setV); }, []);
+  return v;
+}
+
 const NOTICE_KEY = "findus-notice";
 function Login({ onLogin }: { onLogin: (me: Me) => void }) {
+  const version = useVersion();
   const [notice] = useState(() => { try { const n = sessionStorage.getItem(NOTICE_KEY); sessionStorage.removeItem(NOTICE_KEY); return n ?? ""; } catch { return ""; } });
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -83,7 +92,7 @@ function Login({ onLogin }: { onLogin: (me: Me) => void }) {
           }
         }}
       >
-        <h1><img src="/findus.svg" alt="" />Findus</h1>
+        <h1><img src="/findus.svg" alt="" />Findus{version && <small className="brand-version">v{version}</small>}</h1>
         {notice && <p className="notice" role="status">{notice}</p>}
         <label>
           Benutzername
@@ -150,6 +159,7 @@ function App() {
     if (me?.authenticated) api("/api/auth/settings", { method: "PUT", body: { theme: t } }).catch(() => {});
   };
   const anon = !!me && !me.authenticated;
+  const appVersion = useVersion();
   // Automatic sign-out after inactivity: the server expires the session on its own (rolling, IdleLogoutMiddleware); this timer counts real
   // activity in the browser (all tabs share it) and signs out cleanly, and a refused request triggers a check whether the session is gone.
   const idleMin = me?.authenticated ? me.idle_logout_minutes ?? 0 : 0;
@@ -377,7 +387,7 @@ function App() {
   return (
     <div className={`${section === "overview" ? "layout full" : "layout"}${anon || section === "overview" ? "" : " with-tabs"}`} style={{ "--side-w": `${sideW}px` } as CSSProperties}>
       <header className="topbar">
-        <a href="/" className="brand" onClick={(e) => { e.preventDefault(); go("/"); }}><img src="/findus.svg" alt="" className="logo" />Findus</a>
+        <a href="/" className="brand" onClick={(e) => { e.preventDefault(); go("/"); }}><img src="/findus.svg" alt="" className="logo" />Findus{appVersion && <small className="brand-version" title="Version">v{appVersion}</small>}</a>
         <TabNav tabs={tabs} section={section} go={go} />
         <Search onSelect={(id) => go(`/n/${id}`)} onOpenTab={anon ? undefined : (path) => openTab(path)} teams={me.nav?.teams ?? []} hasPrivate={!!me.nav?.private} />
         <ProfileMenu me={me} theme={theme} onTheme={chooseTheme} onMe={applyMe}
