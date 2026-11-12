@@ -40,6 +40,12 @@ const PATHS = {
   share: "M18 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM8.6 13.5l6.8 4M15.4 6.5l-6.8 4",
   undo: "M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3",
   redo: "M15 14l5-5-5-5M20 9H10a6 6 0 0 0 0 12h3",
+  arrowLeft: "M19 12H5M11 6l-6 6 6 6",
+  arrowUp: "M12 19V5M6 11l6-6 6 6",
+  grid: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z",
+  list: "M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01",
+  plus: "M12 5v14M5 12h14",
+  tree: "M4 5h6M4 12h6M4 19h6M10 5v14M10 12h10M10 19h10",
 } as const;
 
 export type IconName = keyof typeof PATHS;

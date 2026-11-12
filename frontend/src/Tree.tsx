@@ -9,9 +9,13 @@ import { tr, trs } from "./i18n";
 
 const EMOJI: Partial<Record<Kind, string>> = { file: "📎", map: "🗺️", link: "📐" };
 
-function KindIcon({ kind }: { kind: Kind }) {
-  return kind === "area" || kind === "folder" ? <Icon name="folder" size={16} /> : kind === "page" ? <Icon name="fileText" size={16} />
-    : <span aria-hidden="true">{EMOJI[kind]}</span>;
+export function KindIcon({ kind, size = 16 }: { kind: Kind; size?: number }) {
+  return (
+    <span className={`kind-icon k-${kind}`} aria-hidden="true">
+      {kind === "area" || kind === "folder" ? <Icon name="folder" size={size} /> : kind === "page" ? <Icon name="fileText" size={size} />
+        : <span style={{ fontSize: size * 0.95 }}>{EMOJI[kind]}</span>}
+    </span>
+  );
 }
 
 // Which folders are open is remembered per browser session (sessionStorage, per user) as a list of node ids: a fresh session starts

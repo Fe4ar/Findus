@@ -10,6 +10,7 @@ import { Editor } from "./Editor";
 import { FileView, uploadFile } from "./FileView";
 import { isOffice } from "./OnlyOffice";
 import { DocEmbed } from "./DocEmbed";
+import { Explorer } from "./Explorer";
 import { Rights } from "./Rights";
 import { DrawioView, EMPTY_DRAWIO } from "./Drawio";
 import { ask, confirmDialog, notify } from "./Dialog";
@@ -21,9 +22,11 @@ interface Props {
   id: string;
   onSelect: (id: string | null) => void;
   onChanged: () => void;
+  explorer?: boolean; // classic wiki view: folders and areas show as the explorer
+  onTree?: () => void;
 }
 
-export function NodeView({ id, onSelect, onChanged }: Props) {
+export function NodeView({ id, onSelect, onChanged, explorer, onTree }: Props) {
   const [node, setNode] = useState<NodeDetail | null>(null);
   const [error, setError] = useState("");
   const [tab, setTab] = useState<"content" | "history">("content");
@@ -43,7 +46,7 @@ export function NodeView({ id, onSelect, onChanged }: Props) {
   };
 
   return (
-    <article className={`node${node.kind === "file" && isOffice(node.versions?.[0]?.original_name.toLowerCase() ?? "") ? " wide-doc" : ""}`}>
+    <article className={`node${explorer && node.space === "wiki" && (node.kind === "folder" || node.kind === "area") ? " explorer-mode" : ""}${node.kind === "file" && isOffice(node.versions?.[0]?.original_name.toLowerCase() ?? "") ? " wide-doc" : ""}`}>
       <nav className="breadcrumb" aria-label={tr("Pfad")}>
         {node.breadcrumb.map((b) => (
           <span key={b.id}>
@@ -67,6 +70,8 @@ export function NodeView({ id, onSelect, onChanged }: Props) {
             <Page node={node} onSaved={update} />
           ) : node.kind === "file" ? (
             <FileView node={node} onChanged={update} />
+          ) : explorer && node.space === "wiki" ? (
+            <Explorer node={node} onSelect={onSelect} onChanged={onChanged} onTree={onTree} />
           ) : (
             <Container node={node} onSelect={onSelect} onChanged={onChanged} />
           )}

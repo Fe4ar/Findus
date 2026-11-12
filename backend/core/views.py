@@ -219,6 +219,7 @@ def me_data(user):
                       for m in user.team_memberships.select_related("team")],
             "theme": getattr(getattr(user, "findus_settings", None), "theme", "auto"),
             "language": getattr(getattr(user, "findus_settings", None), "language", "de"),
+            "wiki_view": getattr(getattr(user, "findus_settings", None), "wiki_view", "tree"),
             "must_change_password": bool(getattr(getattr(user, "findus_settings", None), "must_change_password", False))}
 
 
@@ -262,10 +263,14 @@ def auth_settings(request):
     if not request.user.is_authenticated:
         raise PermissionDenied()
     d, values = request.data, {}
-    if "theme" in d or "language" not in d:
+    if "theme" in d or not ("language" in d or "wiki_view" in d):
         if d.get("theme") not in dict(UserSettings.THEMES):
-            raise ValidationError({"theme": "auto, light oder dark."})
+            raise ValidationError({"theme": "auto, light, dark oder color."})
         values["theme"] = d["theme"]
+    if "wiki_view" in d:
+        if d["wiki_view"] not in dict(UserSettings.WIKI_VIEWS):
+            raise ValidationError({"wiki_view": "tree oder classic."})
+        values["wiki_view"] = d["wiki_view"]
     if "language" in d:
         if d["language"] not in dict(UserSettings.LANGUAGES):
             raise ValidationError({"language": "de oder en."})
@@ -304,11 +309,14 @@ def tree(request):
             qs = qs.filter(is_public=False, team=None)
     from .shares import can_share
     ctx = rights.Context()
+    details = request.query_params.get("details") == "1"  # explorer view: change date and author, size of files
     out = []
-    for n in qs:
+    for n in qs.select_related("updated_by") if details else qs:
         if not can(request.user, READ, n):
             continue
         row = {**node_summary(n, ctx), "writable": can(request.user, WRITE, n),
+               **({"updated_at": n.updated_at, "updated_by": user_name(n.updated_by),
+                   "size": (n.file_versions.first().size if n.kind == Node.FILE and n.file_versions.exists() else None)} if details else {}),
                **({"can_share": can_share(request.user, n)} if n.kind == Node.FOLDER else {})}
         if n.kind == Node.FOLDER and n.space == Node.WIKI:
             if row.get("can_share") or not _chain(n)[-1].owner_id:

@@ -2592,3 +2592,21 @@ def test_dashboard_nested_shortcut_folders(db):
     # Others cannot touch them.
     assert bc.post("/api/dashboard/folders", {"category": cat, "name": "x", "parent": f1}, format="json").status_code == 404
     assert bc.patch(f"/api/dashboard/folders/{f1}", {"parent": None}, format="json").status_code == 404
+
+
+def test_theme_color_wiki_view_and_tree_details(admin, db):
+    from .models import UserSettings
+    u, c = _member("ola")
+    assert c.get("/api/auth/me").json()["wiki_view"] == "tree"
+    assert c.put("/api/auth/settings", {"theme": "color"}, format="json").json()["theme"] == "color"
+    r = c.put("/api/auth/settings", {"wiki_view": "classic"}, format="json").json()
+    assert r["wiki_view"] == "classic" and r["theme"] == "color"  # one setting does not reset the other
+    assert c.put("/api/auth/settings", {"wiki_view": "grid"}, format="json").status_code == 400
+    assert c.put("/api/auth/settings", {"theme": "neon"}, format="json").status_code == 400
+    assert c.put("/api/auth/settings", {"language": "en"}, format="json").json()["wiki_view"] == "classic"
+    # Explorer listing: details on request only.
+    team = _team(admin, "Expl", u)
+    f = create(c, "folder", "Ordner", team["area"]); p = create(c, "page", "Seite", f)
+    plain = c.get(f"/api/tree?parent={f}").json()[0]
+    det = c.get(f"/api/tree?parent={f}&details=1").json()[0]
+    assert "updated_at" not in plain and det["updated_by"] == "ola" and det["updated_at"] and det["size"] is None and det["writable"] is True

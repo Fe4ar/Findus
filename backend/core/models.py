@@ -178,11 +178,14 @@ class LoginThrottle(models.Model):
 
 class UserSettings(models.Model):
     """Per-user preferences that follow the account across devices."""
-    THEMES = [("auto", "System"), ("light", "Hell"), ("dark", "Dunkel")]
+    THEMES = [("auto", "System"), ("light", "Hell"), ("dark", "Dunkel"), ("color", "Farbig")]
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, primary_key=True, related_name="findus_settings")
     theme = models.CharField(max_length=5, choices=THEMES, default="auto")
     # Interface language the user chose (frontend translations: de, en); German is the default.
+    # Wiki view: the tree in the sidebar ("tree", default) or the explorer style folder view ("classic").
+    WIKI_VIEWS = [("tree", "Baum"), ("classic", "Klassisch")]
+    wiki_view = models.CharField(max_length=7, choices=WIKI_VIEWS, default="tree")
     LANGUAGES = [("de", "Deutsch"), ("en", "English")]
     language = models.CharField(max_length=5, choices=LANGUAGES, default="de")
     # Set by admins: file download, PDF/Markdown export and OnlyOffice download/print (see permissions.can_download).

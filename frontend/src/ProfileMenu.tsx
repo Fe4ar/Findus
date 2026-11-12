@@ -5,7 +5,7 @@ import { adminAllowed } from "./Admin";
 import { PasswordDialog } from "./Password";
 import { tr, getLang, LANGS, Lang } from "./i18n";
 
-export const THEMES: [Theme, string, string][] = [["light", "☀️", "Hell"], ["dark", "🌙", "Dunkel"], ["auto", "🖥️", "Automatisch"]];
+export const THEMES: [Theme, string, string][] = [["light", "☀️", "Hell"], ["dark", "🌙", "Dunkel"], ["color", "🎨", "Farbig"], ["auto", "🖥️", "Automatisch"]];
 
 /** Initials from "First Last" (falls back to the username): "Anna Berg" → "AB", "admin" → "AD". */
 export function initials(name: string) {
@@ -22,6 +22,17 @@ export function ThemeSwitch({ theme, onTheme, role = "radio" }: { theme: Theme; 
         <button key={id} role={role} aria-checked={theme === id} title={tr(label)} onClick={() => onTheme(id)}>
           <span aria-hidden="true">{icon}</span> <span className="label">{tr(label)}</span>
         </button>
+      ))}
+    </div>
+  );
+}
+
+/** Wiki view: the tree in the sidebar or the explorer style folder view. */
+export function ViewSwitch({ view, onView, role = "radio" }: { view: "tree" | "classic"; onView: (v: "tree" | "classic") => void; role?: "radio" | "menuitemradio" }) {
+  return (
+    <div className="theme-switch view-switch" role={role === "radio" ? "radiogroup" : "group"} aria-label={tr("Wiki-Ansicht")}>
+      {([["tree", "Baum"], ["classic", "Klassisch"]] as const).map(([id, label]) => (
+        <button key={id} role={role} aria-checked={view === id} onClick={() => onView(id)}><span className="label">{tr(label)}</span></button>
       ))}
     </div>
   );
@@ -46,12 +57,13 @@ interface Props {
   theme: Theme;
   onTheme: (t: Theme) => void;
   onLang: (l: Lang) => void;
+  onView: (v: "tree" | "classic") => void;
   onLogout: () => void;
   onMe?: (me: Me) => void;
 }
 
 /** Round avatar with initials; opens the account menu (WAI-ARIA menu button: arrows, Home/End, Esc). */
-export function ProfileMenu({ me, theme, onTheme, onLang, onLogout, onMe }: Props) {
+export function ProfileMenu({ me, theme, onTheme, onLang, onView, onLogout, onMe }: Props) {
   const [open, setOpen] = useState(false);
   const [integrations, setIntegrations] = useState(false);
   const [password, setPassword] = useState(false);
@@ -106,6 +118,8 @@ export function ProfileMenu({ me, theme, onTheme, onLang, onLogout, onMe }: Prop
           <div className="profile-section" aria-hidden="true">{tr("Darstellung")}</div>
           <ThemeSwitch theme={theme} onTheme={onTheme} role="menuitemradio" />
           <LangSwitch onLang={onLang} role="menuitemradio" />
+          <div className="profile-section" aria-hidden="true">{tr("Wiki-Ansicht")}</div>
+          <ViewSwitch view={me.wiki_view ?? "tree"} onView={onView} role="menuitemradio" />
           <hr />
           <button role="menuitem" tabIndex={-1} onClick={() => { close(false); setPassword(true); }}>{tr("Passwort ändern")}</button>
           {me.todoist && me.features?.includes("tasks") && (

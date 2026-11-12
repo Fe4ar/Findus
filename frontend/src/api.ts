@@ -65,11 +65,12 @@ export interface Me {
   teams?: { id: number; name: string; leader: boolean; can_write: boolean }[];
   theme?: Theme;
   language?: string;
+  wiki_view?: "tree" | "classic"; // wiki view: tree in the sidebar or the explorer style folder view
   must_change_password?: boolean; // the start admin has to set a new password first
   idle_logout_minutes?: number; // automatic sign-out after this long without activity, 0 = off
 }
 
-export type Theme = "auto" | "light" | "dark";
+export type Theme = "auto" | "light" | "dark" | "color";
 
 export class ApiError extends Error {
   constructor(public status: number, public body: any) {

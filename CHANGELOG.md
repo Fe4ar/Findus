@@ -2,6 +2,14 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.9.0] - 2026-11-12
+
+### Added
+- Classic wiki view (explorer style), switchable per user in the profile menu ("Wiki view": Tree or Classic, stored on the account, default Tree). Folders and areas open as a file manager view with a path bar (clickable, also a drop target), back and "up one level" buttons, large icons or a sortable list (name, type, changed, by), search in the current folder, "+ New" (folder, page, upload, import), multi-select with Ctrl/Shift-click, drag and drop to move the selection into a folder or onto a path segment, rename and delete from the selection bar, double click to open, keyboard (Enter, F2, Delete, Ctrl+A, Backspace)
+- New theme "Farbig" (colourful: strong blue accent on a deep blue background) next to Light, Dark and Automatic; chosen per user
+- Coloured kind icons everywhere in all themes: folders amber, pages blue, files grey, maps green, diagram links violet
+- Migration 0035 adds the wiki view setting and the new theme choice
+
 ## [0.8.16] - 2026-11-11
 
 ### Added

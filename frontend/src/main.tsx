@@ -19,6 +19,7 @@ import { ForcedPassword } from "./Password";
 import { NavTab, TabNav } from "./TabNav";
 import "./styles.css";
 import { tr, useLang, setLang, getLang, LANGS, Lang } from "./i18n";
+import { Explorer } from "./Explorer";
 
 // Top-level tabs: "overview", "team-<id>" (one per team, its area), "wiki" (areas outside every team), "tasks", "map",
 // "faq" (Alle Anwender, the public areas) and "admin" (not in the bar).
@@ -159,6 +160,10 @@ function App() {
   const chooseLang = (l: Lang) => {
     setLang(l);
     if (me?.authenticated) api("/api/auth/settings", { method: "PUT", body: { language: l } }).catch(() => {});
+  };
+  const chooseView = (v: "tree" | "classic") => {
+    setMe((cur) => (cur ? { ...cur, wiki_view: v } : cur));
+    if (me?.authenticated) api("/api/auth/settings", { method: "PUT", body: { wiki_view: v } }).catch(() => {});
   };
   const chooseTheme = (t: Theme) => {
     setTheme(t);
@@ -386,20 +391,22 @@ function App() {
   lastTab.current = section === "admin" || section === "overview" || section === "tasks" || section === "map" || extensions.some((e) => e.id === section) ? lastTab.current : section;
   const tabs = tabsFor(me);
   const team = me.nav?.teams.find((t) => `team-${t.id}` === section);
+  // Classic wiki view: the explorer replaces the sidebar tree in the wiki, team and private tabs ("Alle Anwender" keeps its FAQ portal).
+  const classic = !anon && me.wiki_view === "classic" && (section === "wiki" || section === "private" || !!team);
   const selectedId = nodeIdOf(activePath);
   const split = !anon && state.split && state.split !== state.active && state.tabs.some((t) => t.id === state.split) ? state.split : null;
   const shown = (t: DocTab) => t.id === state.active || t.id === split;
 
   return (
-    <div className={`${section === "overview" ? "layout full" : "layout"}${anon || section === "overview" ? "" : " with-tabs"}`} style={{ "--side-w": `${sideW}px` } as CSSProperties}>
+    <div className={`${section === "overview" || classic ? "layout full" : "layout"}${anon || section === "overview" ? "" : " with-tabs"}`} style={{ "--side-w": `${sideW}px` } as CSSProperties}>
       <header className="topbar">
         <a href="/" className="brand" onClick={(e) => { e.preventDefault(); go("/"); }}><img src="/findus.svg" alt="" className="logo" />{tr("Findus")}{appVersion && <small className="brand-version" title={tr("Version")}>v{appVersion}</small>}</a>
         <TabNav tabs={tabs} section={section} go={go} />
         <Search onSelect={(id) => go(`/n/${id}`)} onOpenTab={anon ? undefined : (path) => openTab(path)} teams={me.nav?.teams ?? []} hasPrivate={!!me.nav?.private} />
-        <ProfileMenu me={me} theme={theme} onTheme={chooseTheme} onLang={chooseLang} onMe={applyMe}
+        <ProfileMenu me={me} theme={theme} onTheme={chooseTheme} onLang={chooseLang} onView={chooseView} onMe={applyMe}
           onLogout={async () => { await api("/api/auth/logout", { method: "POST" }); setMe({ authenticated: false }); }} />
       </header>
-      {(section === "wiki" || section === "faq" || section === "private" || team) && (
+      {(section === "wiki" || section === "faq" || section === "private" || team) && !classic && (
         <nav className="sidebar" aria-label={team ? teamLabel(team.name) : section === "private" ? tr("Privat") : section === "faq" ? tr("Alle Anwender") : tr("Ordnerbaum")}>
           <Tree key={section} selected={selectedId} version={treeVersion} onChanged={changed} user={user ?? ""} canExport={!!me.can_download}
             onSelect={(id) => go(id ? `/n/${id}` : team ? `/n/${team.area}` : section === "private" ? `/n/${me.nav?.private}` : section === "faq" ? "/anwender" : "/wiki")}
@@ -417,7 +424,7 @@ function App() {
       {section === "admin" && (
         <nav className="sidebar" aria-label={tr("Verwaltung")}><AdminNav me={me} path={activePath} go={go} /></nav>
       )}
-      {(section === "wiki" || section === "faq" || section === "private" || team || section === "map" || section === "admin") && <SideHandle width={sideW} onChange={changeSide} />}
+      {((section === "wiki" || section === "faq" || section === "private" || !!team) && !classic || section === "map" || section === "admin") && <SideHandle width={sideW} onChange={changeSide} />}
       <div className="workspace">
         {!anon && section !== "overview" && (
           <TabBar state={{ ...state, split }} dirty={dirty} version={treeVersion} onActivate={activate} onClose={closeTab}
@@ -426,7 +433,7 @@ function App() {
         )}
       <main className={split ? "content split" : "content"}>
         {home && !anon && (
-          <section className="tab-pane"><View path="/" anon={false} me={me} go={go} changed={changed} /></section>
+          <section className="tab-pane"><View path="/" anon={false} me={me} go={go} changed={changed} onTree={() => chooseView("tree")} /></section>
         )}
         {(anon ? [activeTab] : state.tabs).map((t) => (
           // Every open tab stays mounted (hidden) so editors, OnlyOffice and draw.io keep their state.
@@ -434,7 +441,7 @@ function App() {
             aria-label={t.id === split ? tr("Rechte Hälfte") : undefined}
             onPointerDownCapture={() => { if (t.id !== state.active) activate(t.id); }}>
             <TabContext.Provider value={{ setDirty: dirtySetter(t.id) }}>
-              <View path={t.path} anon={anon} me={me} go={(path) => goIn(t.id, path)} changed={changed} />
+              <View path={t.path} anon={anon} me={me} go={(path) => goIn(t.id, path)} changed={changed} onTree={() => chooseView("tree")} />
             </TabContext.Provider>
           </section>
         ))}
@@ -444,7 +451,8 @@ function App() {
   );
 }
 
-function View({ path, anon, me, go, changed }: { path: string; anon: boolean; me: Me; go: (path: string) => void; changed: () => void }) {
+function View({ path, anon, me, go, changed, onTree }: { path: string; anon: boolean; me: Me; go: (path: string) => void; changed: () => void; onTree?: () => void }) {
+  const explorer = !anon && me.wiki_view === "classic";
   const p = path.split("?")[0];
   const id = nodeIdOf(p);
   if (p.startsWith("/netzwerk") && !anon && me.features?.includes("network")) {
@@ -459,8 +467,9 @@ function View({ path, anon, me, go, changed }: { path: string; anon: boolean; me
   const ext = extensions.find((e) => p.startsWith(e.path));
   if (ext && !anon && ext.show(me)) return <>{ext.render()}</>;
   if (p.startsWith("/aufgaben") && !anon && me.features?.includes("tasks")) return <><h1>{tr("Aufgaben")}</h1><TaskBoard /></>;
-  if (p.startsWith("/n/") && id) return <NodeView key={id} id={id} onSelect={(nid) => go(nid ? `/n/${nid}` : "/wiki")} onChanged={changed} />;
+  if (p.startsWith("/n/") && id) return <NodeView key={id} id={id} onSelect={(nid) => go(nid ? `/n/${nid}` : "/wiki")} onChanged={changed} explorer={explorer} onTree={onTree} />;
   if (p.startsWith("/anwender")) return <Faq onSelect={(nid) => go(`/n/${nid}`)} />;
+  if (p.startsWith("/wiki") && explorer) return <Explorer node={null} onSelect={(nid) => go(nid ? `/n/${nid}` : "/wiki")} onChanged={changed} onTree={onTree} />;
   if (p.startsWith("/wiki")) {
     return (
       <>
