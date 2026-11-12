@@ -72,7 +72,7 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
   treeUser = user;
   // With rootId the top level holds the area's folders and pages, so new items go into that area.
   const rootNode = rootId ? ({ id: rootId, kind: "area" } as NodeSummary) : null;
-  const topKinds = rootId ? CHILD_KINDS[space] : ROOT_KINDS[space];
+  const topKinds = rootId ? CHILD_KINDS[space] : space === "karte" ? (["area", "folder", "map", "link"] as Kind[]) : ROOT_KINDS[space];
   const [menu, setMenu] = useState<Menu | null>(null);
   const [importing, setImporting] = useState<NodeSummary | null>(null);
   const [sharing, setSharing] = useState<NodeSummary | null>(null);
@@ -100,8 +100,8 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
   // Folders other teams shared with the user's teams, below the team's own tree.
   useEffect(() => {
     if (!rootId) return;
-    api<{ id: string; title: string; from_team: string; edit: boolean; to_user: boolean }[]>("/api/shares/incoming")
-      .then((r) => setIncoming(r.filter((x) => (incomingKind === "user") === x.to_user).map((x) => ({ id: x.id, kind: "folder", title: x.title, status: "published", position: 0, has_children: true, writable: x.edit, from: x.from_team }))))
+    api<{ id: string; title: string; from_team: string; edit: boolean; to_user: boolean; can_leave?: boolean }[]>("/api/shares/incoming")
+      .then((r) => setIncoming(r.filter((x) => (incomingKind === "user") === x.to_user).map((x) => ({ id: x.id, kind: "folder", title: x.title, status: "published", position: 0, has_children: true, writable: x.edit, from: x.from_team, received: x.from_team !== "Du (privat)", can_leave: x.can_leave }))))
       .catch(() => setIncoming([]));
   }, [rootId, version, incomingKind]);
 
@@ -171,7 +171,7 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
           onDragLeave={() => setHeadDrop(false)}
           onDrop={(e) => { setHeadDrop(false); const id = e.dataTransfer.getData("text/x-node"); if (rootId && id) { e.preventDefault(); reorder(id, null, rootId, true); } }}>
           <button className="tree-head-name" onClick={() => onSelect(null)} title={head}>
-            <Icon name={privateHead ? "lock" : "users"} size={16} /><span className="label-text">{head}</span>
+            <Icon name={privateHead ? "lock" : space === "karte" ? "tree" : "users"} size={16} /><span className="label-text">{head}</span>
           </button>
           {privateHead
             ? <span className="vis-badge vis-private" title={tr("Nur du siehst diesen Bereich")}>{tr("Nur du")}</span>
@@ -231,14 +231,21 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
                 const title = await ask({ title: tr("Umbenennen"), label: tr("Neuer Name"), initial: m.node!.title, ok: tr("Umbenennen"), validate: (v) => (v.trim() ? null : tr("Bitte einen Namen eingeben.")) });
                 if (title?.trim()) run(() => api(`/api/nodes/${m.node!.id}`, { method: "PATCH", body: { title } }));
               }} />
-              <MenuItem label={tr("Löschen")} danger onClick={async () => {
+              {m.node.can_leave && (
+                <MenuItem label={tr("Entfernen")} danger onClick={async () => {
+                  setMenu(null);
+                  if (await confirmDialog({ title: tr("„{title}“ entfernen?", { title: m.node!.title }), message: tr("Die Freigabe wird für dich gelöst; der Inhalt bleibt unverändert beim Besitzer."), ok: tr("Entfernen"), danger: true }))
+                    run(async () => { await api(`/api/shares/${m.node!.id}/leave`, { method: "POST" }); if (selected === m.node!.id) onSelect(null); });
+                }} />
+              )}
+              {!m.node.received && <MenuItem label={tr("Löschen")} danger onClick={async () => {
                 setMenu(null);
                 if (await confirmDialog({ title: tr("„{title}“ löschen?", { title: m.node!.title }), message: tr("Alles darunter wird mitgelöscht."), ok: tr("Löschen"), danger: true }))
                   run(async () => {
                     await api(`/api/nodes/${m.node!.id}`, { method: "DELETE" });
                     if (selected === m.node!.id) onSelect(null);
                   });
-              }} />
+              }} />}
             </>
           )}
         </ul>
@@ -249,7 +256,7 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
   );
 }
 
-async function exportFolder(node: NodeSummary) {
+export async function exportFolder(node: NodeSummary) {
   try {
     const res = await fetch(`/api/nodes/${node.id}/export-originals`, { credentials: "same-origin" });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || tr("Fehler {status}", { status: res.status }));

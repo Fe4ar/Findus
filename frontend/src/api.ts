@@ -14,6 +14,9 @@ export interface NodeSummary {
   shared?: string[]; // folders: names of the teams this folder is shared with
   from?: string; // folders listed under "Von anderen Teams": the sharing team
   can_share?: boolean; // folders of a team area, for its leader and admins
+  received?: boolean; // inside (or being) content shared with the user or the user's team: never deleted by the receiver
+  can_leave?: boolean; // a shared folder: the receiver may dissolve the share ("Entfernen")
+  can_manage?: boolean; // explorer listings: may change the rights of this item
 }
 
 export interface FileVersion {
@@ -57,6 +60,7 @@ export interface Me {
   is_admin?: boolean;
   can_overview?: boolean;
   can_create_area?: boolean;
+  can_create_network?: boolean; // may create at the top of the network tree
   can_download?: boolean;
   collabora?: boolean;
   nav?: { private?: string | null; teams: { id: number; name: string; area: string; write: boolean }[]; other: boolean; public_areas: string[] };

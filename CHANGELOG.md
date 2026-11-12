@@ -2,6 +2,15 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.9.6] - 2026-11-12
+
+### Added
+- The classic wiki view has the remaining actions of the tree: a right-click menu on items and on the empty area, and the same actions in the selection bar. Per item and only where the rights allow: Share … (to teams or users, as in the tree), Export folder (ZIP), Export page as PDF or Markdown, Download (files), Import folder … (into a folder), Properties & rights … (opens the folder with its rights panel, needs "manage rights"), Rename, Delete. The empty area offers New folder, New page, Upload file and Import folder. At the top of a team area and of the private area the classic view also lists what others shared ("Von anderen Teams" / "Für mich freigegeben")
+- The Network sidebar has the same head as the team and private areas ("Netzwerk" with a "+" menu for area, folder, map and diagram link) instead of staying empty. Writers and leaders of a team with the network function may now create at the top of the network tree; the new item belongs to their team
+
+### Changed
+- Shared content is deleted by its owner only: whoever received a folder (for themselves or their team) can never delete it or anything inside it, whatever their rights (HTTP 403, and the action is not offered in the tree, the explorer or its menus). Instead the receiver can "Entfernen" the share: users for their own share, team leaders for the team's share; the content stays untouched with the owner. The incoming list tells whether a share can be removed (`can_leave`)
+
 ## [0.9.5] - 2026-11-12
 
 ### Fixed

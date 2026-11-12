@@ -773,7 +773,8 @@ def test_share_folder_with_other_teams(admin, db):
     assert {n["title"]: n["can_share"] for n in mac.get(f"/api/tree?parent={a['area']}").json()} == {"Gemeinsam": False, "Intern": False}
     # "Von anderen Teams": the target team lists the folder, the owning team does not.
     inc = mbc.get("/api/shares/incoming").json()
-    assert inc == [{"id": folder, "title": "Gemeinsam", "from_team": "Netz", "edit": False, "to": "Team IT", "to_user": False}] and lbc.get("/api/shares/incoming").json() == inc
+    strip = lambda rows: [{k: v for k, v in r.items() if k != "can_leave"} for r in rows]
+    assert strip(inc) == [{"id": folder, "title": "Gemeinsam", "from_team": "Netz", "edit": False, "to": "Team IT", "to_user": False}] and strip(lbc.get("/api/shares/incoming").json()) == strip(inc)
     assert mac.get("/api/shares/incoming").json() == [] and APIClient().get("/api/shares/incoming").status_code in (401, 403)
     # With edit the other team's writers write; the folder itself still cannot be moved or deleted from there.
     assert put(lac, [{"team": b["id"], "edit": True}]).json()["shared"][0]["edit"] is True
@@ -2201,7 +2202,7 @@ def test_private_folder_shared_with_one_user_read_only_and_back(admin, db):
     assert [h["group"] for h in ac.get("/api/search", {"q": "vertraulich"}).json()] == ["Privat"]
     # Where the recipient sees it: "Für mich freigegeben" (incoming for a user), the path starts at the shared folder, tab = Privat.
     inc = bc.get("/api/shares/incoming").json()
-    assert inc == [{"id": folder, "title": "Mein Ordner", "from_team": "anna (privat)", "edit": False, "to": "Du", "to_user": True}]
+    assert inc == [{"id": folder, "title": "Mein Ordner", "from_team": "anna (privat)", "edit": False, "to": "Du", "to_user": True, "can_leave": True}]
     d = bc.get(f"/api/nodes/{page}").json()
     assert d.get("via_user") is True and [x["id"] for x in d["breadcrumb"]] == [folder] and "via_team" not in d
     assert "via_user" not in ac.get(f"/api/nodes/{page}").json()
@@ -2232,7 +2233,7 @@ def test_private_folder_with_edit_for_a_user_and_for_a_team(admin, db):
     assert dc.get(f"/api/nodes/{page}").status_code == 200 and dc.put(f"/api/pages/{page}/content", {"html": "x", "base_version": 3}, format="json").status_code == 403
     assert tmc.get(f"/api/nodes/{page}").status_code == 404 and cc.get(f"/api/nodes/{page}").status_code == 404
     inc = dc.get("/api/shares/incoming").json()
-    assert inc == [{"id": folder, "title": "Mein Ordner", "from_team": "anna (privat)", "edit": False, "to": "Team Netz", "to_user": False}] or inc[0]["to_user"] is False
+    assert inc == [{"id": folder, "title": "Mein Ordner", "from_team": "anna (privat)", "edit": False, "to": "Team Netz", "to_user": False, "can_leave": False}] or inc[0]["to_user"] is False
     assert dc.get(f"/api/nodes/{page}").json()["via_team"] == team["id"]
     # The team cannot share it on or change the rights either.
     assert dc.put(f"/api/nodes/{folder}/shares", {"teams": []}, format="json").status_code == 403
@@ -2619,3 +2620,50 @@ def test_empty_paragraphs_survive_saving(admin, db):
     html = "<p>Oben</p><p></p><p></p><p>Unten</p>"
     assert admin.put(f"/api/pages/{page}/content", {"html": html, "base_version": 1, "content": {"type": "doc", "content": []}}, format="json").status_code == 200
     assert admin.get(f"/api/nodes/{page}").json()["content_html"].count("<p></p>") == 2  # the sanitizer keeps blank lines
+
+
+def test_explorer_listing_tells_manage_right(admin, db):
+    lead, lc = _member("lia"); mem, mc = _member("max")
+    team = _team(admin, "Rechte2", lead, [(mem, True)])
+    f = create(lc, "folder", "Ordner", team["area"])
+    rows = lambda cl: cl.get(f"/api/tree?parent={team['area']}&details=1").json()
+    assert rows(admin)[0]["can_manage"] is True  # rights are managed by admins (and whoever the permission rows allow), not by team writers
+    assert rows(mc)[0]["can_manage"] is False and rows(mc)[0]["writable"] is True  # a writer can rename but not change rights
+
+
+def test_receivers_never_delete_but_can_leave_the_share(admin, db):
+    from .models import UserShare, NodePermission
+    owner, oc = _member("olli"); rec, rc = _member("rex"); lead, lc = _member("lena")
+    t_owner = _team(admin, "Besitz", owner); t_rec = _team(admin, "Empfang", lead, [(rec, True)])
+    folder = create(oc, "folder", "Geteilt", t_owner["area"]); sub = create(oc, "folder", "Unter", folder); page = create(oc, "page", "Seite", sub)
+    # team share (edit): the receiving team's writer can edit, never delete
+    assert oc.put(f"/api/nodes/{folder}/shares", {"teams": [{"team": t_rec["id"], "edit": True}], "users": []}, format="json").status_code == 200
+    assert rc.patch(f"/api/nodes/{page}", {"title": "Neu"}, format="json").status_code == 200
+    for n in (page, sub, folder):
+        assert rc.delete(f"/api/nodes/{n}").status_code == 403, n
+        assert lc.delete(f"/api/nodes/{n}").status_code == 403, n  # not even the receiving team's leader
+    assert rc.get(f"/api/tree?parent={folder}").json()[0]["received"] is True and oc.get(f"/api/tree?parent={folder}").json()[0]["received"] is False
+    # leaving: members cannot, the leader can; the content stays with the owner
+    inc = {r["title"]: r for r in rc.get("/api/shares/incoming").json()}["Geteilt"]; assert inc["can_leave"] is False
+    assert rc.post(f"/api/shares/{folder}/leave").status_code == 403
+    assert lc.get("/api/shares/incoming").json()[0]["can_leave"] is True
+    assert lc.post(f"/api/shares/{page}/leave").status_code == 400  # only the shared folder itself
+    assert lc.post(f"/api/shares/{folder}/leave").json()["removed"] >= 1
+    assert rc.get("/api/shares/incoming").json() == [] and rc.get(f"/api/nodes/{folder}").status_code == 404
+    assert oc.get(f"/api/nodes/{page}").status_code == 200 and oc.delete(f"/api/nodes/{page}").status_code == 204  # the owner keeps everything and may delete
+    # user share
+    folder2 = create(oc, "folder", "Nur fuer Rex", t_owner["area"])
+    priv = oc.get("/api/auth/me").json()["nav"]["private"]
+    pf = create(oc, "folder", "Privat geteilt", priv); pp = create(oc, "page", "P", pf)
+    assert oc.put(f"/api/nodes/{pf}/shares", {"teams": [], "users": [{"user": rec.id, "edit": True}]}, format="json").status_code == 200
+    assert rc.delete(f"/api/nodes/{pp}").status_code == 403 and rc.delete(f"/api/nodes/{pf}").status_code == 403
+    assert rc.post(f"/api/shares/{pf}/leave").status_code == 200 and rc.get(f"/api/nodes/{pf}").status_code == 404 and oc.get(f"/api/nodes/{pp}").status_code == 200
+
+def test_team_writer_creates_at_the_top_of_the_network_tree(admin, db):
+    lead, lc = _member("nele"); plain, pc = _member("nora")
+    t = _team(admin, "Netz3", lead)
+    assert lc.get("/api/auth/me").json()["can_create_network"] is True and pc.get("/api/auth/me").json()["can_create_network"] is False
+    r = lc.post("/api/nodes", {"kind": "folder", "title": "Heim", "space": "karte"}, format="json")
+    assert r.status_code == 201, r.content
+    assert lc.get("/api/tree?space=karte").json()[0]["title"] == "Heim"  # visible for the team through its groups
+    assert pc.post("/api/nodes", {"kind": "folder", "title": "x", "space": "karte"}, format="json").status_code == 404

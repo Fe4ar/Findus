@@ -24,9 +24,11 @@ interface Props {
   onChanged: () => void;
   explorer?: boolean; // classic wiki view: folders and areas show as the explorer
   onTree?: () => void;
+  canExport?: boolean;
+  incoming?: "team" | "user"; // classic view: top of a team area / the private area also lists what was shared with the team / the user
 }
 
-export function NodeView({ id, onSelect, onChanged, explorer, onTree }: Props) {
+export function NodeView({ id, onSelect, onChanged, explorer, onTree, canExport, incoming }: Props) {
   const [node, setNode] = useState<NodeDetail | null>(null);
   const [error, setError] = useState("");
   const [tab, setTab] = useState<"content" | "history">("content");
@@ -71,7 +73,7 @@ export function NodeView({ id, onSelect, onChanged, explorer, onTree }: Props) {
           ) : node.kind === "file" ? (
             <FileView node={node} onChanged={update} />
           ) : explorer && node.space === "wiki" ? (
-            <Explorer node={node} onSelect={onSelect} onChanged={onChanged} onTree={onTree} />
+            <Explorer node={node} onSelect={onSelect} onChanged={onChanged} onTree={onTree} canExport={canExport} incoming={incoming} />
           ) : (
             <Container node={node} onSelect={onSelect} onChanged={onChanged} />
           )}

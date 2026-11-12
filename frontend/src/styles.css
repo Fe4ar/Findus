@@ -1137,3 +1137,6 @@ body.side-dragging { cursor: col-resize; user-select: none; }
 
 /* v0.9.5: deliberate blank lines (empty paragraphs) keep their height in the read-only view, like in the editor (where ProseMirror adds a break). */
 .prose p:empty::after { content: "\00a0"; }
+
+.ex-section { grid-column: 1 / -1; margin-top: var(--space-3); padding-top: var(--space-2); border-top: 1px solid var(--border); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.ex-list .ex-section { grid-column: auto; padding-left: var(--space-3); }

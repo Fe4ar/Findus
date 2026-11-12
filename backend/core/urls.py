@@ -56,6 +56,7 @@ urlpatterns = [
     path("api/nodes/<uuid:node_id>/shares", shares.node_shares),
     path("api/nodes/<uuid:node_id>/reorder", views.node_reorder),
     path("api/shares/incoming", shares.incoming),
+    path("api/shares/<uuid:node_id>/leave", shares.leave_share),
     path("api/people", shares.people),
     path("api/admin/folders", admin_api.folders),
     path("api/admin/folders/save", admin_api.folders_save),

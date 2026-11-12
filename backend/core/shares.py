@@ -68,6 +68,33 @@ def guard_root(user, node):
         raise PermissionDenied("Dieser Ordner ist freigegeben; nur der Besitzer (das besitzende Team) verschiebt oder löscht ihn.")
 
 
+def guard_no_delete(user, node):
+    """Whoever received content (a folder shared with them or their team, and everything in it) never deletes it, whatever rights they have:
+    only the owner does. The receiver can "Entfernen" the share instead (leave_share)."""
+    if share_root(user, node):
+        raise PermissionDenied("Freigegebene Inhalte darf nur der Besitzer löschen. Mit „Entfernen“ löst du die Freigabe für dich.")
+
+
+@api_view(["POST"])
+def leave_share(request, node_id):
+    """The receiver's counterpart of "Freigabe zurücknehmen": dissolve the share of this folder for the user (single-user share) and for the
+    teams the user leads (team share). The content stays with the owner untouched."""
+    node = node_or_404(request.user, node_id)
+    root = share_root(request.user, node)
+    if root is None or root[0].pk != node.pk:
+        raise ValidationError({"detail": "Nur ein freigegebener Ordner selbst kann entfernt werden."})
+    removed = UserShare.objects.filter(node=node, user=request.user).delete()[0]
+    for m in TeamMember.objects.filter(user=request.user, is_leader=True).select_related("team"):
+        groups = [g for g in (m.team.read_group_id, m.team.write_group_id) if g]
+        removed += NodePermission.objects.filter(node=node, group_id__in=groups).delete()[0]
+    if not removed:
+        raise PermissionDenied("Die Freigabe an ein Team lösen nur die Teamleiter („Entfernen“).")
+    node.__dict__.pop("_findus_chain", None)
+    request.user.__dict__.pop("_findus_user_shares", None)
+    audit.log(request, "permissions", None, freigabe={"entfernt": True, "von_empfaenger": True})
+    return Response({"removed": removed})
+
+
 def guard_receiver(user, node):
     """Whoever received a folder neither shares it on nor changes sharing or rights in it (owner, owning team and admins only)."""
     if not (is_admin(user) and not is_private(node)) and share_root(user, node):
@@ -183,13 +210,14 @@ def incoming(request):
         if (owner and owner.pk in mine) or (owner is None and root.owner_id is None) or not can(user, "read", n):
             continue
         label = ("Du" if root.owner_id == user.pk else user_name(root.owner)) + " (privat)" if root.owner_id else owner.name
-        row = out.setdefault(n.pk, {"id": n.id, "title": n.title, "from_team": label, "edit": False, "to": groups[p.group_id].name, "to_user": False})
+        row = out.setdefault(n.pk, {"id": n.id, "title": n.title, "from_team": label, "edit": False, "to": groups[p.group_id].name, "to_user": False, "can_leave": False})
         row["edit"] = row["edit"] or (p.can_write and can(user, WRITE, n))
+        row["can_leave"] = row["can_leave"] or TeamMember.objects.filter(user=user, team=groups[p.group_id], is_leader=True).exists()
     for s in UserShare.objects.filter(user=user, node__deleted_at=None).select_related("node"):
         n = s.node
         if n.kind == Node.FOLDER and can(user, "read", n):
             out[n.pk] = {"id": n.id, "title": n.title, "from_team": user_name(_chain(n)[-1].owner) + " (privat)", "edit": s.can_write and can(user, WRITE, n),
-                         "to": "Du", "to_user": True}
+                         "to": "Du", "to_user": True, "can_leave": True}
     return Response(sorted(out.values(), key=lambda r: (r["from_team"].lower(), r["title"].lower())))
 
 

@@ -112,6 +112,18 @@ def is_drawio(node):
     return node.kind == Node.FILE and node.space == Node.WIKI and node.title.lower().endswith(".drawio")
 
 
+def network_team_groups(user):
+    """(read group, write group) of the teams the user leads or writes in and whose network function is on: they may create at the top of the network tree."""
+    if not user.is_authenticated:
+        return []
+    out = []
+    for m in user.team_memberships.select_related("team"):
+        t = m.team
+        if (m.is_leader or m.can_write) and "network" not in t.disabled_features and t.read_group_id and t.write_group_id:
+            out.append((t.read_group, t.write_group))
+    return out
+
+
 def validate_parent(kind, parent, space=Node.WIKI):
     if kind not in Node.SPACE_KINDS[space]:
         raise ValidationError({"kind": "Dieser Typ ist hier nicht erlaubt."})
@@ -214,7 +226,8 @@ def me_data(user):
     if not user.is_authenticated:
         return {"authenticated": False}
     return {"authenticated": True, "username": user.get_username(), "name": user_name(user),
-            "is_superuser": user.is_superuser, "is_admin": is_admin(user), "can_create_area": can(user, WRITE) and "wiki" in enabled(user), "can_overview": can(user, READ),
+            "is_superuser": user.is_superuser, "is_admin": is_admin(user), "can_create_area": can(user, WRITE) and "wiki" in enabled(user),
+            "can_create_network": "network" in enabled(user) and (can(user, WRITE) or bool(network_team_groups(user))), "can_overview": can(user, READ),
             "can_download": can_download(user), "collabora": bool(settings.COLLABORA_UPSTREAM), "features": sorted(enabled(user)), "nav": nav_data(user), "todoist": IntegrationSettings.allowed(), "idle_logout_minutes": IntegrationSettings.idle_minutes(), "teams": [{"id": m.team_id, "name": m.team.name, "leader": m.is_leader, "can_write": m.is_leader or m.can_write}
                       for m in user.team_memberships.select_related("team")],
             "theme": getattr(getattr(user, "findus_settings", None), "theme", "auto"),
@@ -309,13 +322,15 @@ def tree(request):
             qs = qs.filter(is_public=False, team=None)
     from .shares import can_share
     ctx = rights.Context()
+    from .shares import share_root
+    received = bool(parent_id) and share_root(request.user, parent) is not None  # everything inside a received folder is received too
     details = request.query_params.get("details") == "1"  # explorer view: change date and author, size of files
     out = []
     for n in qs.select_related("updated_by") if details else qs:
         if not can(request.user, READ, n):
             continue
-        row = {**node_summary(n, ctx), "writable": can(request.user, WRITE, n),
-               **({"updated_at": n.updated_at, "updated_by": user_name(n.updated_by),
+        row = {**node_summary(n, ctx), "writable": can(request.user, WRITE, n), "received": received,
+               **({"can_manage": can(request.user, MANAGE, n), "updated_at": n.updated_at, "updated_by": user_name(n.updated_by),
                    "size": (n.file_versions.first().size if n.kind == Node.FILE and n.file_versions.exists() else None)} if details else {}),
                **({"can_share": can_share(request.user, n)} if n.kind == Node.FOLDER else {})}
         if n.kind == Node.FOLDER and n.space == Node.WIKI:
@@ -342,11 +357,12 @@ def node_create(request):
     if not title:
         raise ValidationError({"title": "Titel fehlt."})
     parent = node_or_404(request.user, request.data["parent"], WRITE) if request.data.get("parent") else None
-    if parent is None and not can(request.user, WRITE):
-        raise NotFound()
     space = parent.space if parent else request.data.get("space") or Node.WIKI
     if space not in Node.SPACE_KINDS:
         raise ValidationError({"space": "wiki oder karte"})
+    team_groups = network_team_groups(request.user) if parent is None and space == Node.KARTE else []
+    if parent is None and not can(request.user, WRITE) and not team_groups:
+        raise NotFound()
     validate_parent(kind, parent, space)
     if parent is None and ("network" if space == Node.KARTE else "wiki") not in enabled(request.user):
         raise PermissionDenied("Diese Funktion ist für dein Team nicht aktiviert.")
@@ -361,6 +377,9 @@ def node_create(request):
         for p in NodePermission.objects.filter(node=None, group__user=request.user):
             NodePermission.objects.create(node=node, group=p.group, can_read=p.can_read, can_write=p.can_write,
                                           can_publish=p.can_publish)
+        for read_group, write_group in team_groups:  # writers of a team with the network function get the new top level item for their team
+            NodePermission.objects.update_or_create(node=node, group=read_group, defaults=dict(can_read=True))
+            NodePermission.objects.update_or_create(node=node, group=write_group, defaults=dict(can_read=True, can_write=True, can_publish=True))
         node.never_public = True
         node.save(update_fields=["never_public"])
     audit.log(request, "create", node, kind=kind)
@@ -414,6 +433,8 @@ def node_view(request, node_id):
         from .shares import guard_root
         guard_root(request.user, node)  # a folder shared by another team is moved or deleted only by its owners
     if request.method == "DELETE":
+        from .shares import guard_no_delete
+        guard_no_delete(request.user, node)  # received (shared) content is deleted by its owner only
         now = timezone.now()
         with transaction.atomic():
             todo = [node]

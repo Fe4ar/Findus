@@ -432,8 +432,8 @@ function App() {
       )}
       {section === "map" && (
         <nav className="sidebar" aria-label={tr("Netzwerk")}>
-          <Tree space="karte" selected={selectedId} onSelect={(id) => go(id ? `/netzwerk/${id}` : "/netzwerk")} version={treeVersion}
-            onChanged={changed} canCreateRoot={!!me.can_create_area} onOpenTab={(id) => openTab(`/netzwerk/${id}`)} />
+          <Tree space="karte" head={tr("Netzwerk")} selected={selectedId} onSelect={(id) => go(id ? `/netzwerk/${id}` : "/netzwerk")} version={treeVersion}
+            onChanged={changed} canCreateRoot={!!me.can_create_network} onOpenTab={(id) => openTab(`/netzwerk/${id}`)} />
         </nav>
       )}
       {section === "admin" && (
@@ -482,9 +482,9 @@ function View({ path, anon, me, go, changed, onTree }: { path: string; anon: boo
   const ext = extensions.find((e) => p.startsWith(e.path));
   if (ext && !anon && ext.show(me)) return <>{ext.render()}</>;
   if (p.startsWith("/aufgaben") && !anon && me.features?.includes("tasks")) return <><h1>{tr("Aufgaben")}</h1><TaskBoard /></>;
-  if (p.startsWith("/n/") && id) return <NodeView key={id} id={id} onSelect={(nid) => go(nid ? `/n/${nid}` : "/wiki")} onChanged={changed} explorer={explorer} onTree={onTree} />;
+  if (p.startsWith("/n/") && id) return <NodeView key={id} id={id} onSelect={(nid) => go(nid ? `/n/${nid}` : "/wiki")} onChanged={changed} explorer={explorer} onTree={onTree} canExport={!!me.can_download} incoming={id === me.nav?.private ? "user" : me.nav?.teams.some((t) => t.area === id) ? "team" : undefined} />;
   if (p.startsWith("/anwender")) return <Faq onSelect={(nid) => go(`/n/${nid}`)} />;
-  if (p.startsWith("/wiki") && explorer) return <Explorer node={null} onSelect={(nid) => go(nid ? `/n/${nid}` : "/wiki")} onChanged={changed} onTree={onTree} />;
+  if (p.startsWith("/wiki") && explorer) return <Explorer node={null} onSelect={(nid) => go(nid ? `/n/${nid}` : "/wiki")} onChanged={changed} onTree={onTree} canExport={!!me.can_download} />;
   if (p.startsWith("/wiki")) {
     return (
       <>
