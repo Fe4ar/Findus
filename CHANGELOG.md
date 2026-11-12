@@ -2,6 +2,11 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.9.5] - 2026-11-12
+
+### Fixed
+- Blank lines made with Enter (empty paragraphs) keep their height in the read-only page view, so it looks like the editor. They were stored correctly, but an empty paragraph had no height in the view and its margins collapsed into a single small gap
+
 ## [0.9.2] - 2026-11-12
 
 ### Fixed

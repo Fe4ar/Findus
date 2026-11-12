@@ -1134,3 +1134,6 @@ body.side-dragging { cursor: col-resize; user-select: none; }
 
 .ex-new > button { display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
 .ex-search { width: 15rem; }
+
+/* v0.9.5: deliberate blank lines (empty paragraphs) keep their height in the read-only view, like in the editor (where ProseMirror adds a break). */
+.prose p:empty::after { content: "\00a0"; }

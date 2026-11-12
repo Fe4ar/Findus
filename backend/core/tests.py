@@ -2611,3 +2611,11 @@ def test_theme_color_wiki_view_and_tree_details(admin, db):
     plain = c.get(f"/api/tree?parent={f}").json()[0]
     det = c.get(f"/api/tree?parent={f}&details=1").json()[0]
     assert "updated_at" not in plain and det["updated_by"] == "ola" and det["updated_at"] and det["size"] is None and det["writable"] is True
+
+
+def test_empty_paragraphs_survive_saving(admin, db):
+    area = create(admin, "area", "Leer")
+    page = create(admin, "page", "Abstand", area)
+    html = "<p>Oben</p><p></p><p></p><p>Unten</p>"
+    assert admin.put(f"/api/pages/{page}/content", {"html": html, "base_version": 1, "content": {"type": "doc", "content": []}}, format="json").status_code == 200
+    assert admin.get(f"/api/nodes/{page}").json()["content_html"].count("<p></p>") == 2  # the sanitizer keeps blank lines
