@@ -78,30 +78,38 @@ const NOTICE_KEY = "findus-notice";
 function Login({ onLogin }: { onLogin: (me: Me) => void }) {
   const version = useVersion();
   const [notice] = useState(() => { try { const n = sessionStorage.getItem(NOTICE_KEY); sessionStorage.removeItem(NOTICE_KEY); return n === "idle" ? "idle" : ""; } catch { return ""; } });
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  // The values are read from the fields at submit time, not from React state: a browser's password manager fills a form that appeared
+  // after the page loaded (e.g. after the automatic sign-out) without firing input events, and the state would still be empty.
+  async function submit(form: HTMLFormElement) {
+    setError("");
+    const data = new FormData(form);
+    const body = { username: String(data.get("username") ?? ""), password: String(data.get("password") ?? "") };
+    const post = () => api<Me>("/api/auth/login", { method: "POST", body });
+    try {
+      await api("/api/auth/me").catch(() => undefined); // fresh CSRF cookie before the POST
+      try { onLogin(await post()); }
+      catch (err) {
+        if (!(err instanceof ApiError && err.status === 403)) throw err;
+        await api("/api/auth/me").catch(() => undefined);  // CSRF token or session went stale: renew and try once more
+        onLogin(await post());
+      }
+    } catch (err) {
+      setError(err instanceof ApiError ? (err.status === 403 ? tr("Die Sitzung ist abgelaufen. Bitte noch einmal anmelden.") : err.message) : tr("Anmeldung fehlgeschlagen."));
+    }
+  }
   return (
     <main className="login">
       <form
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setError("");
-          try {
-            onLogin(await api<Me>("/api/auth/login", { method: "POST", body: { username, password } }));
-          } catch (err) {
-            setError(err instanceof ApiError ? err.message : tr("Anmeldung fehlgeschlagen."));
-          }
-        }}
+        onSubmit={(e) => { e.preventDefault(); void submit(e.currentTarget); }}
       >
         <h1><img src="/findus.svg" alt="" />{tr("Findus")}{version && <small className="brand-version">v{version}</small>}</h1>
         {notice && <p className="notice" role="status">{tr("Automatisch abgemeldet wegen Inaktivität.")}</p>}
         <label>
-          {tr("Benutzername")}<input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus autoComplete="username" />
+          {tr("Benutzername")}<input name="username" autoFocus autoComplete="username" />
         </label>
         <label>
-          {tr("Passwort")}<input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password" />
+          {tr("Passwort")}<input type="password" name="password" autoComplete="current-password" />
         </label>
         {error && <p className="error" role="alert">{error}</p>}
         <button type="submit" className="primary">{tr("Anmelden")}</button>
@@ -202,6 +210,13 @@ function App() {
     document.addEventListener("visibilitychange", check);
     return () => { events.forEach((e) => removeEventListener(e, onActivity)); clearInterval(timer); document.removeEventListener("visibilitychange", check); };
   }, [me?.authenticated, idleMin, expire]);
+  useEffect(() => {
+    // Coming back to a tab (after the computer slept, say): check right away whether the session is still there, so the login with the
+    // note appears instead of an app whose first click fails.
+    const onVisible = () => { if (document.visibilityState === "visible") window.dispatchEvent(new Event("findus-auth-check")); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
   useEffect(() => {
     let busy = false;
     const onCheck = () => {

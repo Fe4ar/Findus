@@ -2,6 +2,11 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.9.2] - 2026-11-12
+
+### Fixed
+- After the automatic sign-out (or whenever the browser's password manager filled the login form without typing), the first sign-in attempt showed "Benutzername oder Passwort falsch" although the data was right, and only worked after reloading the page: the form sent its internal state, which stays empty when the browser fills the fields without input events. The login now reads the fields themselves, fetches a fresh CSRF token before posting, retries once when the token or session went stale and says so instead of "wrong password"; when you come back to a tab whose session ended, the login with the note appears right away
+
 ## [0.9.1] - 2026-11-12
 
 ### Removed
