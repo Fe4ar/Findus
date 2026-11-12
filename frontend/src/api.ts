@@ -70,7 +70,7 @@ export interface Me {
   idle_logout_minutes?: number; // automatic sign-out after this long without activity, 0 = off
 }
 
-export type Theme = "auto" | "light" | "dark" | "color";
+export type Theme = "auto" | "light" | "dark";
 
 export class ApiError extends Error {
   constructor(public status: number, public body: any) {

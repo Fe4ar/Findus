@@ -2598,9 +2598,10 @@ def test_theme_color_wiki_view_and_tree_details(admin, db):
     from .models import UserSettings
     u, c = _member("ola")
     assert c.get("/api/auth/me").json()["wiki_view"] == "tree"
-    assert c.put("/api/auth/settings", {"theme": "color"}, format="json").json()["theme"] == "color"
+    assert c.put("/api/auth/settings", {"theme": "dark"}, format="json").json()["theme"] == "dark"
+    assert c.put("/api/auth/settings", {"theme": "color"}, format="json").status_code == 400  # the blue theme was dropped again
     r = c.put("/api/auth/settings", {"wiki_view": "classic"}, format="json").json()
-    assert r["wiki_view"] == "classic" and r["theme"] == "color"  # one setting does not reset the other
+    assert r["wiki_view"] == "classic" and r["theme"] == "dark"  # one setting does not reset the other
     assert c.put("/api/auth/settings", {"wiki_view": "grid"}, format="json").status_code == 400
     assert c.put("/api/auth/settings", {"theme": "neon"}, format="json").status_code == 400
     assert c.put("/api/auth/settings", {"language": "en"}, format="json").json()["wiki_view"] == "classic"

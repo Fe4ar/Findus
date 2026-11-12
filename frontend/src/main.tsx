@@ -146,7 +146,7 @@ function App() {
   const changeSide = (w: number) => { setSideW(w); try { w === SIDE_DEFAULT ? localStorage.removeItem("findus-side-width") : localStorage.setItem("findus-side-width", String(w)); } catch { /* private mode: not remembered */ } };
   const [theme, setTheme] = useState<Theme>(() => {
     try {
-      return (localStorage.getItem("theme") as Theme) ?? "auto";
+      const t = localStorage.getItem("theme"); return t === "light" || t === "dark" ? t : "auto";
     } catch {
       return "auto";
     }
@@ -154,7 +154,7 @@ function App() {
   useLang(); // re-render everything when the language changes
   const applyMe = useCallback((m: Me) => {
     setMe(m);
-    if (m.theme) setTheme(m.theme);
+    if (m.theme) setTheme(m.theme === "light" || m.theme === "dark" ? m.theme : "auto");
     if (m.language) setLang(m.language);
   }, []);
   const chooseLang = (l: Lang) => {

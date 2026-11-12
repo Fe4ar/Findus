@@ -265,7 +265,7 @@ def auth_settings(request):
     d, values = request.data, {}
     if "theme" in d or not ("language" in d or "wiki_view" in d):
         if d.get("theme") not in dict(UserSettings.THEMES):
-            raise ValidationError({"theme": "auto, light, dark oder color."})
+            raise ValidationError({"theme": "auto, light oder dark."})
         values["theme"] = d["theme"]
     if "wiki_view" in d:
         if d["wiki_view"] not in dict(UserSettings.WIKI_VIEWS):

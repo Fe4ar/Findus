@@ -178,7 +178,7 @@ class LoginThrottle(models.Model):
 
 class UserSettings(models.Model):
     """Per-user preferences that follow the account across devices."""
-    THEMES = [("auto", "System"), ("light", "Hell"), ("dark", "Dunkel"), ("color", "Farbig")]
+    THEMES = [("auto", "System"), ("light", "Hell"), ("dark", "Dunkel")]
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, primary_key=True, related_name="findus_settings")
     theme = models.CharField(max_length=5, choices=THEMES, default="auto")

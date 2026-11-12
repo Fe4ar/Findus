@@ -2,6 +2,11 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.9.1] - 2026-11-12
+
+### Removed
+- The theme "Farbig" (blue) is gone again: only Light, Dark and Automatic remain. Accounts that had chosen it switch to Automatic (migration 0036). The coloured kind icons (amber folders, blue pages, grey files) stay
+
 ## [0.9.0] - 2026-11-12
 
 ### Added

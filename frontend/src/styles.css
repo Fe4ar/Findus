@@ -1078,44 +1078,11 @@ body.side-dragging { cursor: col-resize; user-select: none; }
 .dash-folder.drop-after { box-shadow: 0 2px 0 var(--accent); }
 .dash-folder.drop-into { outline: 2px solid var(--accent); outline-offset: -2px; }
 
-/* ---------- v0.9.0: theme "Farbig" (strong blue accent on a deep blue background), coloured kind icons ---------- */
-:root[data-theme="color"] {
-  --brand: #3b8bff;
-  --sidebar-bg: #0e1c44;
-  --bg: #0a1330;
-  --surface: #11204f;
-  --surface-2: #19306a;
-  --fg: #eaf1ff;
-  --muted: #a3b6e6;
-  --border: #25397c;
-  --border-strong: #3f5cb3;
-  --accent: #4b9bff;
-  --accent-hover: #7ab7ff;
-  --accent-fg: #04122e;
-  --accent-soft: #173a85;
-  --select: #1f4399;
-  --danger: #ff8597;
-  --ok: #52e08d;
-  --add: #124a33;
-  --del: #6b1d33;
-  --shadow-sm: 0 1px 2px rgb(0 0 20 / 0.5);
-  --shadow: 0 4px 14px rgb(0 0 30 / 0.5);
-  --shadow-lg: 0 14px 36px rgb(0 0 30 / 0.65);
-  --focus: 0 0 0 3px rgb(75 155 255 / 0.5);
-  --blue: #8ec3ff; --blue-soft: #1a3b86; --green: #5fe0a0; --green-soft: #12493a;
-  --field-bg: #081027; --field-border: #4f6dc4;
-  color-scheme: dark;
-}
-:root[data-theme="color"] .hljs-keyword, :root[data-theme="color"] .hljs-built_in { color: #e49bff; }
-:root[data-theme="color"] .hljs-string, :root[data-theme="color"] .hljs-attr { color: #7de0a6; }
-:root[data-theme="color"] .hljs-title, :root[data-theme="color"] .hljs-function { color: #8fc3ff; }
-:root[data-theme="color"] .topbar { background: linear-gradient(90deg, #0f2a6e, #14398f 55%, #0f2a6e); border-bottom-color: #3f5cb3; }
-:root[data-theme="color"] .brand, :root[data-theme="color"] .topbar a { color: #fff; }
-:root[data-theme="color"] button.primary, :root[data-theme="color"] .button.primary { background: linear-gradient(180deg, #5aa6ff, #3b82f0); color: #04122e; border-color: #7ab7ff; }
+/* ---------- v0.9.0: coloured kind icons ---------- */
 /* Coloured kind icons in every theme: folders amber, pages blue, files grey, maps green, diagrams violet. */
 :root { --k-folder: #d98f0a; --k-page: #1f6fd1; --k-file: #6b7280; --k-map: #1a9a63; --k-link: #8250d8; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --k-folder: #ffc247; --k-page: #5aa9ff; --k-file: #a6afbd; --k-map: #4fd8a0; --k-link: #b99cff; } }
-:root[data-theme="dark"], :root[data-theme="color"] { --k-folder: #ffc247; --k-page: #5aa9ff; --k-file: #a6afbd; --k-map: #4fd8a0; --k-link: #b99cff; }
+:root[data-theme="dark"] { --k-folder: #ffc247; --k-page: #5aa9ff; --k-file: #a6afbd; --k-map: #4fd8a0; --k-link: #b99cff; }
 .kind-icon { display: inline-flex; align-items: center; flex: none; }
 .kind-icon.k-area, .kind-icon.k-folder { color: var(--k-folder); }
 .kind-icon.k-page { color: var(--k-page); }

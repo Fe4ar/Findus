@@ -5,7 +5,7 @@ import { adminAllowed } from "./Admin";
 import { PasswordDialog } from "./Password";
 import { tr, getLang, LANGS, Lang } from "./i18n";
 
-export const THEMES: [Theme, string, string][] = [["light", "☀️", "Hell"], ["dark", "🌙", "Dunkel"], ["color", "🎨", "Farbig"], ["auto", "🖥️", "Automatisch"]];
+export const THEMES: [Theme, string, string][] = [["light", "☀️", "Hell"], ["dark", "🌙", "Dunkel"], ["auto", "🖥️", "Automatisch"]];
 
 /** Initials from "First Last" (falls back to the username): "Anna Berg" → "AB", "admin" → "AD". */
 export function initials(name: string) {
