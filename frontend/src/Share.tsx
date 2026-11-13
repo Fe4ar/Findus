@@ -36,7 +36,7 @@ export function ShareDialog({ node, onClose, onSaved }: { node: NodeSummary; onC
     try {
       await api(`/api/nodes/${node.id}/shares`, { method: "PUT", body: {
         teams: Object.entries(chosen).map(([team, edit]) => ({ team: +team, edit })),
-        ...(data?.private ? { users: Object.entries(people).map(([user, p]) => ({ user: +user, edit: p.edit })) } : {}),
+        users: Object.entries(people).map(([user, p]) => ({ user: +user, edit: p.edit })),
       } });
       notify(tr("Freigabe gespeichert."), false);
       ref.current?.close();
@@ -51,8 +51,8 @@ export function ShareDialog({ node, onClose, onSaved }: { node: NodeSummary; onC
         <>
           <p className="muted small">{priv
             ? tr("Wen du hier wählst, sieht diesen Ordner und alles darin; der Ordner bleibt in deinem privaten Bereich, ohne Freigabe sieht ihn niemand (auch kein Admin). Mit „darf bearbeiten“ schreiben die Gewählten mit. Weitergeben oder Rechte ändern können sie nicht; du nimmst die Freigabe jederzeit zurück.")
-            : tr("Mitglieder der gewählten Teams sehen diesen Ordner und alles darin. Mit „darf bearbeiten“ schreiben auch ihre Schreibberechtigten mit. Der Ordner bleibt im Bereich von {owner}; nur ihr verschiebt oder löscht ihn.", { owner: data.owner })}</p>
-          {priv && (
+            : tr("Mitglieder der gewählten Teams und die gewählten Benutzer sehen diesen Eintrag (Ordner, Seite oder Datei) und alles darin. Mit „darf bearbeiten“ schreiben auch ihre Schreibberechtigten mit. Der Ordner bleibt im Bereich von {owner}; nur ihr verschiebt oder löscht ihn.", { owner: data.owner })}</p>
+          {(
             <fieldset className="share-users">
               <legend>{tr("Benutzer")}</legend>
               <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={tr("Benutzer suchen (mind. 2 Buchstaben) …")} aria-label={tr("Benutzer suchen")} autoComplete="off" />
@@ -76,7 +76,7 @@ export function ShareDialog({ node, onClose, onSaved }: { node: NodeSummary; onC
               {Object.keys(people).length === 0 && <p className="muted small">{tr("Noch niemand ausgewählt.")}</p>}
             </fieldset>
           )}
-          {priv && <h3 className="share-sub">{tr("Teams")}</h3>}
+          <h3 className="share-sub">{tr("Teams")}</h3>
           {data.teams.length === 0 ? <p className="empty">{tr("Es gibt kein anderes Team.")}</p> : (
             <ul className="share-list">
               {data.teams.map((t) => (

@@ -46,8 +46,8 @@ export function Explorer({ node, onSelect, onChanged, onTree, canExport = false,
   const load = useCallback(() => {
     const url = node ? `/api/tree?parent=${node.id}&details=1` : "/api/tree?space=wiki&scope=other&details=1";
     if (incoming) {
-      api<{ id: string; title: string; from_team: string; edit: boolean; to_user: boolean; can_leave?: boolean }[]>("/api/shares/incoming")
-        .then((r) => setShared(r.filter((x) => (incoming === "user") === x.to_user).map((x) => ({ id: x.id, kind: "folder" as Kind, title: x.title, status: "published" as const, position: 0, has_children: true, writable: x.edit, from: x.from_team, received: x.from_team !== "Du (privat)", can_leave: x.can_leave }))))
+      api<{ id: string; kind?: Kind; title: string; from_team: string; edit: boolean; to_user: boolean; can_leave?: boolean }[]>("/api/shares/incoming")
+        .then((r) => setShared(r.filter((x) => (incoming === "user") === x.to_user).map((x) => ({ id: x.id, kind: (x.kind ?? "folder") as Kind, title: x.title, status: "published" as const, position: 0, has_children: (x.kind ?? "folder") === "folder", writable: x.edit, from: x.from_team, received: x.from_team !== "Du (privat)", can_leave: x.can_leave }))))
         .catch(() => setShared([]));
     } else setShared([]);
     return api<Row[]>(url).then((r) => { setRows(r); setSel(new Set()); }).catch(() => setRows([]));

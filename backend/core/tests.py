@@ -742,7 +742,8 @@ def test_share_folder_with_other_teams(admin, db):
     assert put(lbc, [{"team": b["id"]}], other).status_code in (403, 404)
     # Validation: the own team, unknown teams, pages and areas are refused.
     assert put(lac, [{"team": a["id"]}]).status_code == 400 and put(lac, [{"team": 99999}]).status_code == 400
-    assert put(lac, [{"team": b["id"]}], page).status_code == 400 and put(lac, [{"team": b["id"]}], a["area"]).status_code == 400
+    assert put(lac, [{"team": b["id"]}], page).status_code == 200 and put(lac, [{"team": b["id"]}], a["area"]).status_code == 400  # single pages can be shared (0.9.8), the area itself not
+    put(lac, [], page)
     # Read-only share: the other team sees the folder and what is below it, nothing else, and cannot write.
     r = put(lac, [{"team": b["id"], "edit": False}])
     assert r.status_code == 200 and r.json()["shared"] == [{"team": b["id"], "name": "Team IT", "edit": False}]
@@ -775,7 +776,7 @@ def test_share_folder_with_other_teams(admin, db):
     # "Von anderen Teams": the target team lists the folder, the owning team does not.
     inc = mbc.get("/api/shares/incoming").json()
     strip = lambda rows: [{k: v for k, v in r.items() if k != "can_leave"} for r in rows]
-    assert strip(inc) == [{"id": folder, "title": "Gemeinsam", "from_team": "Netz", "edit": False, "to": "Team IT", "to_user": False}] and strip(lbc.get("/api/shares/incoming").json()) == strip(inc)
+    assert strip(inc) == [{"id": folder, "kind": "folder", "title": "Gemeinsam", "from_team": "Netz", "edit": False, "to": "Team IT", "to_user": False}] and strip(lbc.get("/api/shares/incoming").json()) == strip(inc)
     assert mac.get("/api/shares/incoming").json() == [] and APIClient().get("/api/shares/incoming").status_code in (401, 403)
     # With edit the other team's writers write; the folder itself still cannot be moved or deleted from there.
     assert put(lac, [{"team": b["id"], "edit": True}]).json()["shared"][0]["edit"] is True
@@ -788,7 +789,7 @@ def test_share_folder_with_other_teams(admin, db):
     # Unsharing takes everything away again; admins may share too; every change is in the audit log.
     assert put(lac, []).json()["shared"] == [] and mbc.get(f"/api/nodes/{folder}").status_code == 404 and mbc.get("/api/shares/incoming").json() == []
     assert put(admin, [{"team": b["id"], "edit": False}]).status_code == 200 and mbc.get(f"/api/nodes/{page}").status_code == 200
-    assert AuditLog.objects.filter(action="permissions", details__has_key="freigabe").count() == 4
+    assert AuditLog.objects.filter(action="permissions", details__has_key="freigabe").count() == 6
 
 
 def test_trash_restore_purge_and_audit(admin, db):
@@ -2203,7 +2204,7 @@ def test_private_folder_shared_with_one_user_read_only_and_back(admin, db):
     assert [h["group"] for h in ac.get("/api/search", {"q": "vertraulich"}).json()] == ["Privat"]
     # Where the recipient sees it: "Für mich freigegeben" (incoming for a user), the path starts at the shared folder, tab = Privat.
     inc = bc.get("/api/shares/incoming").json()
-    assert inc == [{"id": folder, "title": "Mein Ordner", "from_team": "anna (privat)", "edit": False, "to": "Du", "to_user": True, "can_leave": True}]
+    assert inc == [{"id": folder, "kind": "folder", "title": "Mein Ordner", "from_team": "anna (privat)", "edit": False, "to": "Du", "to_user": True, "can_leave": True}]
     d = bc.get(f"/api/nodes/{page}").json()
     assert d.get("via_user") is True and [x["id"] for x in d["breadcrumb"]] == [folder] and "via_team" not in d
     assert "via_user" not in ac.get(f"/api/nodes/{page}").json()
@@ -2251,7 +2252,7 @@ def test_private_share_validation_and_people_search(admin, db):
     put = lambda body, n=None: ac.put(f"/api/nodes/{n or folder}/shares", body, format="json")
     assert put({"users": [{"user": ann.id}]}).status_code == 400  # not yourself
     assert put({"users": [{"user": 99999}]}).status_code == 400 and put({"users": [{"user": "x"}]}).status_code == 400
-    assert put({"users": [{"user": ben.id}]}, n=page).status_code == 400 and put({"users": [{"user": ben.id}]}, n=root).status_code == 400  # folders only, not the area
+    assert put({"users": [{"user": ben.id}]}, n=page).status_code == 200 and put({"users": [{"user": ben.id}]}, n=root).status_code == 400  # folders and pages, not the area
     ben.is_active = False
     ben.save()
     assert put({"users": [{"user": ben.id}]}).status_code == 400  # blocked accounts cannot receive
@@ -2683,3 +2684,52 @@ def test_pages_in_the_network_tree(admin, db):
     assert {x["title"] for x in lc.get(f"/api/tree?parent={folder}").json()} == {"Notizen"}
     assert pc.post("/api/nodes", {"kind": "page", "title": "x", "space": "karte"}, format="json").status_code == 404  # no team: no create right
     assert lc.post("/api/nodes", {"kind": "page", "title": "Wiki", "space": "wiki"}, format="json").status_code == 404  # the wiki top level stays closed for a plain team leader
+
+
+def test_folder_export_contains_pages_as_pdf(admin, db, monkeypatch):
+    import io, zipfile
+    from . import export
+    area = create(admin, "area", "Doku2")
+    f = create(admin, "folder", "Netz", area); create(admin, "page", "Anleitung", f)
+    _file_up(admin, f, "plan.txt", b"AAA")
+    monkeypatch.setattr(export, "to_pdf", lambda html, title: b"%PDF-1.4 " + title.encode())
+    r = admin.get(f"/api/nodes/{area}/export-originals")
+    z = zipfile.ZipFile(io.BytesIO(b"".join(r.streaming_content)))
+    assert sorted(z.namelist()) == ["Doku2/Netz/Anleitung.pdf", "Doku2/Netz/plan.txt"] and z.read("Doku2/Netz/Anleitung.pdf").startswith(b"%PDF")
+    # A failing converter does not lose the page: it comes as HTML.
+    def broken(html, title):
+        raise RuntimeError("OnlyOffice down")
+    monkeypatch.setattr(export, "to_pdf", broken)
+    z2 = zipfile.ZipFile(io.BytesIO(b"".join(admin.get(f"/api/nodes/{area}/export-originals").streaming_content)))
+    assert "Doku2/Netz/Anleitung.html" in z2.namelist()
+    # Only what the exporter may read: a reader without rights on a draft folder never gets it.
+    lead, lc = _member("exa"); team = _team(admin, "Export Team", lead)
+    tf = create(lc, "folder", "Intern", team["area"]); create(lc, "page", "Geheim", tf)
+    outsider, oc = _member("outi")
+    assert oc.get(f"/api/nodes/{team['area']}/export-originals").status_code == 404
+
+
+def test_share_single_pages_and_files_with_teams_and_users(admin, db):
+    owner, oc = _member("sven"); lead, lc = _member("lutz"); solo, sc = _member("solo")  # solo is in no team at all
+    t1, t2 = _team(admin, "Gibt", owner), _team(admin, "Nimmt", lead)
+    page = create(oc, "page", "Handout", t1["area"]); f = _file_up(oc, t1["area"], "regeln.txt", b"x").json()["id"]
+    oc.put(f"/api/pages/{page}/content", {"html": "<p>Hallo</p>", "base_version": 1, "content": {"type": "doc", "content": []}}, format="json")
+    assert sc.get(f"/api/nodes/{page}").status_code == 404 and lc.get(f"/api/nodes/{page}").status_code == 404
+    # a single page to a team and a single file to a user, from a team area
+    assert oc.put(f"/api/nodes/{page}/shares", {"teams": [{"team": t2["id"], "edit": False}], "users": [{"user": solo.id, "edit": False}]}, format="json").status_code == 200
+    assert oc.put(f"/api/nodes/{f}/shares", {"teams": [], "users": [{"user": solo.id, "edit": False}]}, format="json").status_code == 200
+    assert lc.get(f"/api/nodes/{page}").status_code == 200 and sc.get(f"/api/nodes/{page}").status_code == 200 and sc.get(f"/api/nodes/{f}").status_code == 200
+    assert sc.get(f"/api/nodes/{t1['area']}").status_code == 404  # only the shared items, not the area around them
+    inc = {r["title"]: r for r in sc.get("/api/shares/incoming").json()}
+    assert set(inc) == {"Handout", "regeln.txt"} and inc["Handout"]["kind"] == "page" and inc["Handout"]["from_team"] == "Gibt" and inc["Handout"]["to_user"] is True
+    assert {r["title"] for r in lc.get("/api/shares/incoming").json()} == {"Handout"}
+    # read-only: no write; receivers never delete, they remove the share
+    assert sc.patch(f"/api/nodes/{page}", {"title": "X"}, format="json").status_code == 403
+    assert sc.delete(f"/api/nodes/{page}").status_code == 403 and lc.delete(f"/api/nodes/{page}").status_code == 403
+    assert sc.post(f"/api/shares/{page}/leave").status_code == 200 and sc.get(f"/api/nodes/{page}").status_code == 404
+    assert oc.get(f"/api/nodes/{page}").status_code == 200  # the owner still has it
+    # edit right for a single user; who may share: not the receiver
+    assert oc.put(f"/api/nodes/{page}/shares", {"teams": [], "users": [{"user": solo.id, "edit": True}]}, format="json").status_code == 200
+    assert sc.patch(f"/api/nodes/{page}", {"title": "Von Solo"}, format="json").status_code == 200
+    assert sc.put(f"/api/nodes/{page}/shares", {"teams": [], "users": []}, format="json").status_code in (403, 404)
+    assert oc.delete(f"/api/nodes/{page}").status_code == 204

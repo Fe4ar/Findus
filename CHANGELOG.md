@@ -2,6 +2,19 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.9.8] - 2026-11-13
+
+### Added
+- Folder export (ZIP of a folder or area) now includes the pages as PDF, one per page in its folder, next to the original files (a failing converter or more than 60 pages: the pages come as HTML). Only what the exporter may read is included
+- Team export: the team head (and the private head) has an export button that exports the whole readable structure (all folders, pages as PDF, files) as a ZIP
+- Sharing: single pages and files can be shared (not only folders), and content of a team can be shared with single users, not only with other teams (as private folders already could). Recipients can read (or edit when allowed), never delete, and can "Entfernen" the share; the incoming list shows the type of each shared item
+
+### Fixed
+- Signing in after a long pause (for example after the automatic sign-out, with the computer asleep in between) could show "Anmeldung fehlgeschlagen" although the data was right: the browser's connection to the server was dead and the first request failed at network level; only a reload helped. The login now retries such a request quietly (up to three tries, with a fresh CSRF token) and, if the server is really unreachable, says so with the technical reason instead of a misleading message. Wrong passwords, locks and expired sessions keep their own messages
+
+### Changed
+- Combined view: in the classic wiki view the tree sidebar stays on the left and the folder content is shown to its right in the explorer layout. A button at the left of the tab bar folds the sidebar away and back (remembered per browser)
+
 ## [0.9.7] - 2026-11-13
 
 ### Added

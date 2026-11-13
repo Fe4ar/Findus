@@ -24,6 +24,9 @@ User = get_user_model()
 MAX_USER_SHARES = 50
 
 
+SHAREABLE = (Node.FOLDER, Node.PAGE, Node.FILE)  # single pages and files can be shared like folders
+
+
 def owner_team(node):
     return Team.objects.filter(area_id=_chain(node)[-1].pk).first()
 
@@ -34,7 +37,7 @@ def private_owner_id(node):
 
 def can_share(user, node):
     """Team folders: the leaders of that team and admins; every member when the team's setting says so. Private folders: the owner."""
-    if node.kind != Node.FOLDER or node.space != Node.WIKI or not user.is_authenticated:
+    if node.kind not in SHAREABLE or node.space != Node.WIKI or not user.is_authenticated:
         return False
     if is_private(node):
         return user.pk == private_owner_id(node)
@@ -110,7 +113,7 @@ def _parse_users(raw, owner_id):
     for u in raw or []:
         if not isinstance(u, dict) or not isinstance(u.get("user"), int):
             raise ValidationError({"users": "Benutzer als {user, edit}."})
-        if u["user"] == owner_id:
+        if owner_id is not None and u["user"] == owner_id:
             raise ValidationError({"users": "Den eigenen Ordner musst du dir nicht freigeben."})
         wanted[u["user"]] = bool(u.get("edit"))
     if len(wanted) > MAX_USER_SHARES:
@@ -126,9 +129,9 @@ def node_shares(request, node_id):
     node = node_or_404(request.user, node_id)
     private = is_private(node)
     team = None if private else owner_team(node)
-    if node.kind != Node.FOLDER or node.space != Node.WIKI or (not private and team is None):
+    if node.kind not in SHAREABLE or node.space != Node.WIKI or (not private and team is None):
         if request.method == "PUT":
-            raise ValidationError({"detail": "Freigeben kann man nur Ordner eines Team-Bereichs oder des eigenen privaten Bereichs."})
+            raise ValidationError({"detail": "Freigeben kann man nur Ordner, Seiten und Dateien eines Team-Bereichs oder des eigenen privaten Bereichs."})
         return Response({"shared": [], "users": [], "can_manage": False, "teams": [], "owner": None, "private": private})
     ctx = rights.Context()
     owner_label = user_name(_chain(node)[-1].owner) + " (privat)" if private else team.name
@@ -148,9 +151,9 @@ def node_shares(request, node_id):
         principals = {p["team"]: p for p in ctx.principals if p["team"]}
         if set(wanted) - set(principals):
             raise ValidationError({"teams": "Unbekanntes Team."})
-        wanted_users = _parse_users(request.data.get("users"), private_owner_id(node)) if private else {}
+        wanted_users = _parse_users(request.data.get("users"), private_owner_id(node))  # teams' content can go to single users too
         before_rows = {s["team"]: s["edit"] for s in ctx.shared_with(node)}
-        before_users = {s["user"]: s["edit"] for s in user_shares_of(node)} if private else {}
+        before_users = {s["user"]: s["edit"] for s in user_shares_of(node)}
         if (any(wanted[t] and not before_rows.get(t) for t in wanted) or any(wanted_users[u] and not before_users.get(u) for u in wanted_users)) \
                 and not may_grant_edit(request.user, node):
             raise PermissionDenied("„Darf bearbeiten“ vergeben nur Mitglieder mit Schreibrecht auf diesen Ordner und die Teamleitung.")
@@ -159,10 +162,9 @@ def node_shares(request, node_id):
             for tid, p in principals.items():
                 if tid != own_id:
                     rights.apply_cell(node, p, tid in wanted, wanted.get(tid, False), ctx)
-            if private:
-                node.user_shares.exclude(user_id__in=list(wanted_users)).delete()
-                for uid, edit in wanted_users.items():
-                    UserShare.objects.update_or_create(node=node, user_id=uid, defaults={"can_write": edit})
+            node.user_shares.exclude(user_id__in=list(wanted_users)).delete()
+            for uid, edit in wanted_users.items():
+                UserShare.objects.update_or_create(node=node, user_id=uid, defaults={"can_write": edit})
         node.__dict__.pop("_findus_chain", None)
         request.user.__dict__.pop("_findus_user_shares", None)
         after = rights.Context().shared_with(node)
@@ -170,12 +172,12 @@ def node_shares(request, node_id):
         audit.log(request, "permissions", None if private else node,
                   freigabe=({"privat": True, "teams": len(after), "benutzer": len(wanted_users)} if private
                             else {"vorher": before, "nachher": [s["name"] for s in after]}))
-        return Response({"shared": after, "users": user_shares_of(node) if private else [], "can_manage": True, "owner": owner_label,
+        return Response({"shared": after, "users": user_shares_of(node), "can_manage": True, "owner": owner_label,
                          "teams": _team_choices(own_id), "private": private})
     manage = can_share(request.user, node)
     if private and not manage:  # a recipient of a private folder learns nothing about the other recipients
         return Response({"shared": [], "users": [], "can_manage": False, "teams": [], "owner": owner_label, "private": True})
-    return Response({"shared": ctx.shared_with(node), "users": user_shares_of(node) if private else [], "can_manage": manage,
+    return Response({"shared": ctx.shared_with(node), "users": user_shares_of(node), "can_manage": manage,
                      "owner": owner_label, "teams": _team_choices(own_id) if manage else [], "private": private})
 
 
@@ -202,7 +204,7 @@ def incoming(request):
     mine = {m.team_id: m.team for m in TeamMember.objects.filter(user=user).select_related("team")}
     groups = {g: t for t in mine.values() for g in (t.read_group_id, t.write_group_id) if g}
     out = {}
-    for p in NodePermission.objects.filter(group_id__in=list(groups), node__kind=Node.FOLDER, node__deleted_at=None).select_related("node"):
+    for p in NodePermission.objects.filter(group_id__in=list(groups), node__kind__in=SHAREABLE, node__space=Node.WIKI, node__deleted_at=None).select_related("node"):
         n = p.node
         root = _chain(n)[-1]
         owner = owner_team(n)
@@ -210,13 +212,15 @@ def incoming(request):
         if (owner and owner.pk in mine) or (owner is None and root.owner_id is None) or not can(user, "read", n):
             continue
         label = ("Du" if root.owner_id == user.pk else user_name(root.owner)) + " (privat)" if root.owner_id else owner.name
-        row = out.setdefault(n.pk, {"id": n.id, "title": n.title, "from_team": label, "edit": False, "to": groups[p.group_id].name, "to_user": False, "can_leave": False})
+        row = out.setdefault(n.pk, {"id": n.id, "kind": n.kind, "title": n.title, "from_team": label, "edit": False, "to": groups[p.group_id].name, "to_user": False, "can_leave": False})
         row["edit"] = row["edit"] or (p.can_write and can(user, WRITE, n))
         row["can_leave"] = row["can_leave"] or TeamMember.objects.filter(user=user, team=groups[p.group_id], is_leader=True).exists()
     for s in UserShare.objects.filter(user=user, node__deleted_at=None).select_related("node"):
         n = s.node
-        if n.kind == Node.FOLDER and can(user, "read", n):
-            out[n.pk] = {"id": n.id, "title": n.title, "from_team": user_name(_chain(n)[-1].owner) + " (privat)", "edit": s.can_write and can(user, WRITE, n),
+        if n.kind in SHAREABLE and can(user, "read", n):
+            root = _chain(n)[-1]
+            label = user_name(root.owner) + " (privat)" if root.owner_id else (owner_team(n).name if owner_team(n) else "")
+            out[n.pk] = {"id": n.id, "kind": n.kind, "title": n.title, "from_team": label, "edit": s.can_write and can(user, WRITE, n),
                          "to": "Du", "to_user": True, "can_leave": True}
     return Response(sorted(out.values(), key=lambda r: (r["from_team"].lower(), r["title"].lower())))
 

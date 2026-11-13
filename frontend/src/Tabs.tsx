@@ -112,6 +112,7 @@ interface BarProps {
   onPin: (id: string) => void;
   onSplit: (id: string | null) => void;
   onNew: () => void;
+  side?: { open: boolean; onToggle: () => void }; // fold the tree sidebar in or out
 }
 
 export function TabBar(p: BarProps) {
@@ -125,6 +126,7 @@ export function TabBar(p: BarProps) {
   const tab = menu && p.state.tabs.find((t) => t.id === menu.id);
   return (
     <div className={`tabbar${p.state.tabs.length === 1 ? " single" : ""}`} role="tablist" aria-label={tr("Offene Tabs")}>
+      {p.side && <button type="button" className="side-toggle" aria-pressed={p.side.open} title={p.side.open ? tr("Seitenleiste einklappen") : tr("Seitenleiste ausklappen")} aria-label={p.side.open ? tr("Seitenleiste einklappen") : tr("Seitenleiste ausklappen")} onClick={p.side.onToggle}><Icon name="panel" size={16} /></button>}
       {p.state.tabs.map((t) => (
         <TabButton key={t.id} tab={t} {...p} onMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, id: t.id }); }} />
       ))}

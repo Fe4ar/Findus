@@ -332,7 +332,7 @@ def tree(request):
         row = {**node_summary(n, ctx), "writable": can(request.user, WRITE, n), "received": received,
                **({"can_manage": can(request.user, MANAGE, n), "updated_at": n.updated_at, "updated_by": user_name(n.updated_by),
                    "size": (n.file_versions.first().size if n.kind == Node.FILE and n.file_versions.exists() else None)} if details else {}),
-               **({"can_share": can_share(request.user, n)} if n.kind == Node.FOLDER else {})}
+               **({"can_share": can_share(request.user, n)} if n.kind in (Node.FOLDER, Node.PAGE, Node.FILE) else {})}
         if n.kind == Node.FOLDER and n.space == Node.WIKI:
             if row.get("can_share") or not _chain(n)[-1].owner_id:
                 row["shared"] = [*row.get("shared", []), *[user_name(s.user) for s in n.user_shares.select_related("user")]]

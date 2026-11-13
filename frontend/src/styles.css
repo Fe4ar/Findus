@@ -1140,3 +1140,16 @@ body.side-dragging { cursor: col-resize; user-select: none; }
 
 .ex-section { grid-column: 1 / -1; margin-top: var(--space-3); padding-top: var(--space-2); border-top: 1px solid var(--border); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .ex-list .ex-section { grid-column: auto; padding-left: var(--space-3); }
+
+.tree-export svg { transform: rotate(180deg); }
+/* 0.9.8: combined view, the tree sidebar folds away */
+.side-toggle { align-self: center; width: 1.6rem; height: 1.6rem; padding: 0; margin-right: 2px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--muted); border-radius: var(--radius-sm); }
+.side-toggle:hover, .side-toggle[aria-pressed="true"]:hover { background: var(--surface); color: var(--fg); }
+.side-toggle[aria-pressed="true"] { color: var(--accent); }
+/* combined view: the explorer is narrower next to the tree, so the path keeps one line and the controls wrap below it */
+.ex-path { flex: 1 1 18rem; flex-wrap: nowrap; overflow: hidden; }
+.ex-crumb, .ex-crumb-wrap { white-space: nowrap; }
+.ex-search { width: 11rem; }
+@media (max-width: 760px) { .ex-actions { overflow-x: auto; } .ex-actions > * { flex: none; } .explorer { min-width: 0; } }
+/* the hidden measuring row of the tab bar must not widen the page (phones scrolled sideways); clip only the x axis so the "Mehr" menu still drops down */
+.topbar .tabs-wrap { overflow-x: clip; }

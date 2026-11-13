@@ -45,6 +45,7 @@ const PATHS = {
   grid: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z",
   list: "M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01",
   plus: "M12 5v14M5 12h14",
+  panel: "M4 5h16v14H4zM9 5v14",
   tree: "M4 5h6M4 12h6M4 19h6M10 5v14M10 12h10M10 19h10",
 } as const;
 

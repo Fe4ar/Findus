@@ -72,27 +72,50 @@ def import_file(request):
     return Response({"id": str(file_node.id), "created": created}, status=201 if created else 200)
 
 
+MAX_PDF_PAGES = 60  # each page is a conversion round trip to OnlyOffice; beyond this the pages are exported as HTML
+
+
 @api_view(["GET"])
 def export_originals(request, node_id):
-    """ZIP with the newest original of every readable file below a folder or area, structure kept."""
+    """ZIP with the newest original of every readable file below a folder or area and every readable page as PDF, structure kept."""
     node = node_or_404(request.user, node_id)
     if node.kind not in Node.CONTAINERS:
         raise ValidationError({"detail": "Nur Bereiche und Ordner lassen sich exportieren."})
     if not can_download(request.user):
         return JsonResponse({"detail": "Exportieren ist für dein Konto nicht freigegeben."}, status=403)
+    from .export import export_html, to_pdf
     tmp = tempfile.TemporaryFile()
     used = set()
+
+    def unique(arc):
+        base, i = arc, 1
+        while arc.lower() in used:  # same name twice in one folder
+            root, ext = os.path.splitext(base)
+            arc, i = f"{root} ({i}){ext}", i + 1
+        used.add(arc.lower())
+        return arc
+
+    pdf_pages = 0
     with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
         for path, n in collect(request.user, node):
+            if n.kind == Node.PAGE and not n.hidden:
+                # Pages come along as PDF (one per page, in their folder); more than MAX_PDF_PAGES or a failing converter: plain HTML instead.
+                html = export_html(request.user, [(path, n)])
+                data, ext = None, ".pdf"
+                if pdf_pages < MAX_PDF_PAGES:
+                    try:
+                        data = to_pdf(html, safe(n.title))
+                        pdf_pages += 1
+                    except Exception:  # OnlyOffice down or the page cannot be converted: keep the content as HTML
+                        data = None
+                if data is None:
+                    data, ext = html.encode("utf-8"), ".html"
+                z.writestr(unique("/".join((*path, safe(n.title) + ext))), data)
+                continue
             fv = n.file_versions.first() if n.kind == Node.FILE else None
             if fv is None:
                 continue
-            arc = "/".join((*path, safe(fv.original_name)))
-            base, i = arc, 1
-            while arc.lower() in used:  # same name twice in one folder
-                root, ext = os.path.splitext(base)
-                arc, i = f"{root} ({i}){ext}", i + 1
-            used.add(arc.lower())
+            arc = unique("/".join((*path, safe(fv.original_name))))
             with fv.file.open("rb") as src, z.open(arc, "w") as dst:
                 for chunk in iter(lambda: src.read(1024 * 1024), b""):
                     dst.write(chunk)

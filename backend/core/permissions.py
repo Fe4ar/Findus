@@ -39,6 +39,17 @@ def _user_shares(user):
     return cache
 
 
+def user_share_actions(user, node):
+    """What single-user shares give the user on node (the shared node and everything below it): READ, or READ+WRITE+PUBLISH. Never MANAGE."""
+    mine = _user_shares(user)
+    if not mine:
+        return set()
+    out = set()
+    for n in _chain(node):
+        out |= mine.get(n.pk, set())
+    return out
+
+
 def shared_actions(user, node):
     """What a non-owner may do inside someone's private area: only what was shared with them, on the shared folder and below.
     Team shares are NodePermission rows of the team groups on the folder, user shares are UserShare rows. Never MANAGE."""
@@ -114,13 +125,14 @@ def can(user, action, node=None):
         return False
     if user.is_superuser:
         return True
-    if node is not None:
+    us = user_share_actions(user, node) if node is not None else set()  # shared with the user alone: works without a team, like in a private area
+    if node is not None and not us:
         from .features import enabled, feature_of
         if feature_of(node) not in enabled(user):
             return False  # the user's teams have this function (Wiki, FAQ, Netzwerk) switched off
     if action == READ and node is not None and is_public(node):
         return True
-    actions = granted(user, node)
+    actions = granted(user, node) | us
     if node is not None and _chain(node)[-1].is_public and _faq_named(user):
         actions = actions | {WRITE, PUBLISH}  # being named in the FAQ editors is itself the right to edit and publish there
     if action != READ and node is not None and _chain(node)[-1].is_public and not _faq_editor(user):

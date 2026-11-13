@@ -85,7 +85,15 @@ function Login({ onLogin }: { onLogin: (me: Me) => void }) {
     setError("");
     const data = new FormData(form);
     const body = { username: String(data.get("username") ?? ""), password: String(data.get("password") ?? "") };
-    const post = () => api<Me>("/api/auth/login", { method: "POST", body });
+    const once = () => api<Me>("/api/auth/login", { method: "POST", body });
+    // After a long pause the browser's connection to the server may be dead (laptop asleep, QUIC/HTTP2 connection gone): the first request then
+    // fails at network level. That is not a wrong password: retry quietly a couple of times before giving up.
+    const post = async () => {
+      for (let i = 0; ; i++) {
+        try { return await once(); }
+        catch (e) { if (e instanceof ApiError || i >= 2) throw e; await new Promise((r) => setTimeout(r, 600 * (i + 1))); await api("/api/auth/me").catch(() => undefined); }
+      }
+    };
     try {
       await api("/api/auth/me").catch(() => undefined); // fresh CSRF cookie before the POST
       try { onLogin(await post()); }
@@ -95,7 +103,9 @@ function Login({ onLogin }: { onLogin: (me: Me) => void }) {
         onLogin(await post());
       }
     } catch (err) {
-      setError(err instanceof ApiError ? (err.status === 403 ? tr("Die Sitzung ist abgelaufen. Bitte noch einmal anmelden.") : err.message) : tr("Anmeldung fehlgeschlagen."));
+      if (!(err instanceof ApiError)) console.error("login failed", err);
+      setError(err instanceof ApiError ? (err.status === 403 ? tr("Die Sitzung ist abgelaufen. Bitte noch einmal anmelden.") : err.message)
+        : tr("Keine Verbindung zum Server ({detail}). Bitte noch einmal versuchen.", { detail: err instanceof Error ? err.message : String(err) }));
     }
   }
   return (
@@ -151,6 +161,8 @@ function App() {
   const [treeVersion, setTreeVersion] = useState(0);
   // index.html applies the stored theme before the first paint; the account setting wins once /me is loaded.
   const [sideW, setSideW] = useState(() => { try { const v = Number(localStorage.getItem("findus-side-width")); return v ? clampSide(v) : SIDE_DEFAULT; } catch { return SIDE_DEFAULT; } });
+  const [sideOpen, setSideOpen] = useState(() => { try { const v = localStorage.getItem("findus-side-open"); return v ? v !== "0" : innerWidth > 760; } catch { return true; } }); // narrow screens start folded
+  const toggleSide = () => setSideOpen((o) => { try { localStorage.setItem("findus-side-open", o ? "0" : "1"); } catch { /* not remembered */ } return !o; });
   const changeSide = (w: number) => { setSideW(w); try { w === SIDE_DEFAULT ? localStorage.removeItem("findus-side-width") : localStorage.setItem("findus-side-width", String(w)); } catch { /* private mode: not remembered */ } };
   const [theme, setTheme] = useState<Theme>(() => {
     try {
@@ -406,14 +418,15 @@ function App() {
   lastTab.current = section === "admin" || section === "overview" || section === "tasks" || section === "map" || extensions.some((e) => e.id === section) ? lastTab.current : section;
   const tabs = tabsFor(me);
   const team = me.nav?.teams.find((t) => `team-${t.id}` === section);
-  // Classic wiki view: the explorer replaces the sidebar tree in the wiki, team and private tabs ("Alle Anwender" keeps its FAQ portal).
-  const classic = !anon && me.wiki_view === "classic" && (section === "wiki" || section === "private" || !!team);
+  // The tree sidebar (wiki, team, private, FAQ) can be folded away; the classic view puts the explorer to its right (combined view).
+  const treeSection = section === "wiki" || section === "faq" || section === "private" || !!team;
+  const showTree = treeSection && (anon || sideOpen);
   const selectedId = nodeIdOf(activePath);
   const split = !anon && state.split && state.split !== state.active && state.tabs.some((t) => t.id === state.split) ? state.split : null;
   const shown = (t: DocTab) => t.id === state.active || t.id === split;
 
   return (
-    <div className={`${section === "overview" || classic ? "layout full" : "layout"}${anon || section === "overview" ? "" : " with-tabs"}`} style={{ "--side-w": `${sideW}px` } as CSSProperties}>
+    <div className={`${section === "overview" || (treeSection && !showTree) ? "layout full" : "layout"}${anon || section === "overview" ? "" : " with-tabs"}`} style={{ "--side-w": `${sideW}px` } as CSSProperties}>
       <header className="topbar">
         <a href="/" className="brand" onClick={(e) => { e.preventDefault(); go("/"); }}><img src="/findus.svg" alt="" className="logo" />{tr("Findus")}{appVersion && <small className="brand-version" title={tr("Version")}>v{appVersion}</small>}</a>
         <TabNav tabs={tabs} section={section} go={go} />
@@ -421,7 +434,7 @@ function App() {
         <ProfileMenu me={me} theme={theme} onTheme={chooseTheme} onLang={chooseLang} onView={chooseView} onMe={applyMe}
           onLogout={async () => { await api("/api/auth/logout", { method: "POST" }); setMe({ authenticated: false }); }} />
       </header>
-      {(section === "wiki" || section === "faq" || section === "private" || team) && !classic && (
+      {showTree && (
         <nav className="sidebar" aria-label={team ? teamLabel(team.name) : section === "private" ? tr("Privat") : section === "faq" ? tr("Alle Anwender") : tr("Ordnerbaum")}>
           <Tree key={section} selected={selectedId} version={treeVersion} onChanged={changed} user={user ?? ""} canExport={!!me.can_download}
             onSelect={(id) => go(id ? `/n/${id}` : team ? `/n/${team.area}` : section === "private" ? `/n/${me.nav?.private}` : section === "faq" ? "/anwender" : "/wiki")}
@@ -439,12 +452,12 @@ function App() {
       {section === "admin" && (
         <nav className="sidebar" aria-label={tr("Verwaltung")}><AdminNav me={me} path={activePath} go={go} /></nav>
       )}
-      {((section === "wiki" || section === "faq" || section === "private" || !!team) && !classic || section === "map" || section === "admin") && <SideHandle width={sideW} onChange={changeSide} />}
+      {(showTree || section === "map" || section === "admin") && <SideHandle width={sideW} onChange={changeSide} />}
       <div className="workspace">
         {!anon && section !== "overview" && (
           <TabBar state={{ ...state, split }} dirty={dirty} version={treeVersion} onActivate={activate} onClose={closeTab}
             onCloseOthers={closeOthers} onReorder={reorder} onPin={pin} onNew={() => openTab("/wiki", true)}
-            onSplit={(id) => setState((s) => ({ ...s, split: id }))} />
+            onSplit={(id) => setState((s) => ({ ...s, split: id }))} side={treeSection ? { open: sideOpen, onToggle: toggleSide } : undefined} />
         )}
       <main className={split ? "content split" : "content"}>
         {home && !anon && (
