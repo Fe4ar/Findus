@@ -46,7 +46,7 @@ interface Menu {
 
 // Separate trees: the wiki and the network tab, both with areas at the top (network: maps and folders may also sit there).
 export type Space = "wiki" | "karte";
-const CHILD_KINDS: Record<Space, Kind[]> = { wiki: ["folder", "page"], karte: ["folder", "map", "link"] };
+const CHILD_KINDS: Record<Space, Kind[]> = { wiki: ["folder", "page"], karte: ["folder", "page", "map", "link"] };
 const ROOT_KINDS: Record<Space, Kind[]> = { wiki: ["area"], karte: ["area"] };
 const NEW_LABEL: Record<Kind, string> = {
   area: "Neuer Bereich", folder: "Neuer Ordner", page: "Neue Seite", file: "", map: "Neue Karte", link: "Netzplan verknüpfen",
@@ -72,7 +72,7 @@ export function Tree({ selected, onSelect, version, onChanged, space = "wiki", c
   treeUser = user;
   // With rootId the top level holds the area's folders and pages, so new items go into that area.
   const rootNode = rootId ? ({ id: rootId, kind: "area" } as NodeSummary) : null;
-  const topKinds = rootId ? CHILD_KINDS[space] : space === "karte" ? (["area", "folder", "map", "link"] as Kind[]) : ROOT_KINDS[space];
+  const topKinds = rootId ? CHILD_KINDS[space] : space === "karte" ? (["area", "folder", "page", "map", "link"] as Kind[]) : ROOT_KINDS[space];
   const [menu, setMenu] = useState<Menu | null>(null);
   const [importing, setImporting] = useState<NodeSummary | null>(null);
   const [sharing, setSharing] = useState<NodeSummary | null>(null);

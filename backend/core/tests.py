@@ -220,7 +220,8 @@ def test_maps_tree_is_separate(client):
     area = create(client, "area", "IT")
     assert "Keller" not in [n["title"] for n in client.get("/api/tree").json()]
     assert "Keller" in [n["title"] for n in client.get("/api/tree?space=karte").json()]
-    assert client.post("/api/nodes", {"kind": "page", "title": "x", "parent": folder["id"]}, format="json").status_code == 400
+    assert client.post("/api/nodes", {"kind": "page", "title": "x", "parent": folder["id"]}, format="json").status_code == 201  # pages live in the network tree too (0.9.7)
+    assert client.post("/api/nodes", {"kind": "file", "title": "x", "parent": folder["id"]}, format="json").status_code == 400
     assert client.post("/api/nodes", {"kind": "map", "title": "x", "parent": area}, format="json").status_code == 400
     assert client.patch(f"/api/nodes/{m}", {"parent": area}, format="json").status_code == 400
     assert client.patch(f"/api/nodes/{m}", {"parent": None}, format="json").status_code == 200  # top level is fine
@@ -2667,3 +2668,18 @@ def test_team_writer_creates_at_the_top_of_the_network_tree(admin, db):
     assert r.status_code == 201, r.content
     assert lc.get("/api/tree?space=karte").json()[0]["title"] == "Heim"  # visible for the team through its groups
     assert pc.post("/api/nodes", {"kind": "folder", "title": "x", "space": "karte"}, format="json").status_code == 404
+
+
+def test_pages_in_the_network_tree(admin, db):
+    lead, lc = _member("pia2"); plain, pc = _member("paul2")
+    _team(admin, "Netz4", lead)
+    folder = lc.post("/api/nodes", {"kind": "folder", "title": "Heim", "space": "karte"}, format="json").json()["id"]
+    r = lc.post("/api/nodes", {"kind": "page", "title": "Notizen", "parent": folder}, format="json")
+    assert r.status_code == 201 and r.json()["space"] == "karte", r.content
+    top = lc.post("/api/nodes", {"kind": "page", "title": "Oben", "space": "karte"}, format="json")
+    assert top.status_code == 201
+    pid = r.json()["id"]
+    assert lc.put(f"/api/pages/{pid}/content", {"html": "<p>Inhalt</p>", "base_version": 1, "content": {"type": "doc", "content": []}}, format="json").status_code == 200
+    assert {x["title"] for x in lc.get(f"/api/tree?parent={folder}").json()} == {"Notizen"}
+    assert pc.post("/api/nodes", {"kind": "page", "title": "x", "space": "karte"}, format="json").status_code == 404  # no team: no create right
+    assert lc.post("/api/nodes", {"kind": "page", "title": "Wiki", "space": "wiki"}, format="json").status_code == 404  # the wiki top level stays closed for a plain team leader

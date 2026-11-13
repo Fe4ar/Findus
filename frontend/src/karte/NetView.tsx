@@ -1,3 +1,4 @@
+import { NodeView } from "../NodeView";
 import { useEffect, useState } from "react";
 import { api, NodeDetail, NodeSummary } from "../api";
 import { Rights } from "../Rights";
@@ -46,6 +47,8 @@ export function NetView({ id, onChanged, search }: { id: string; onChanged: () =
   if (error) return <p className="error" role="alert">{error}</p>;
   if (!node) return <p className="muted">{tr("Wird geladen …")}</p>;
   if (node.kind === "map") return <MapView id={id} onChanged={onChanged} search={search} />;
+  // Normal wiki pages can live in the network tree too: same editor, versions and rights.
+  if (node.kind === "page") return <NodeView key={id} id={id} onSelect={(nid) => navigate(nid ? `/netzwerk/${nid}` : "/netzwerk")} onChanged={onChanged} />;
   if (node.kind === "link") {
     return (
       <div className="karte">
@@ -64,14 +67,14 @@ export function NetView({ id, onChanged, search }: { id: string; onChanged: () =
             {children.map((c) => (
               <li key={c.id}>
                 <a href={`/netzwerk/${c.id}`} onClick={(e) => { e.preventDefault(); navigate(`/netzwerk/${c.id}`); }}>
-                  {{ folder: "📁", map: "🗺️", link: "📐" }[c.kind as string] ?? "▣"} {c.title}
+                  {{ folder: "📁", page: "📄", map: "🗺️", link: "📐" }[c.kind as string] ?? "▣"} {c.title}
                 </a>
-                <span className="muted"> · {{ folder: tr("Ordner"), map: tr("Karte"), link: tr("Netzplan") }[c.kind as string] ?? ""}</span>
+                <span className="muted"> · {{ folder: tr("Ordner"), page: tr("Seite"), map: tr("Karte"), link: tr("Netzplan") }[c.kind as string] ?? ""}</span>
               </li>
             ))}
           </ul>
         ) : <p className="muted">{tr("Noch leer.")}</p>}
-        <p className="muted">{tr("Rechtsklick links im Baum legt Ordner, Karten oder Netzplan-Verknüpfungen an.")}</p>
+        <p className="muted">{tr("Rechtsklick links im Baum legt Ordner, Seiten, Karten oder Netzplan-Verknüpfungen an.")}</p>
       </div>
       {node.permissions.manage && <aside className="meta" aria-label={tr("Eigenschaften")}><Rights node={node} onSaved={setNode} /></aside>}
     </div>

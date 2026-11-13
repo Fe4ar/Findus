@@ -2,6 +2,11 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.9.7] - 2026-11-13
+
+### Added
+- Normal wiki pages can be created in the Network area too, like in the teams: "New page" in the "+" menu of the Network head and in the right-click menu of the Network tree (at the top, in areas and in folders). They are ordinary pages (editor, versions, rights) and are created under the same rules as other network items
+
 ## [0.9.6] - 2026-11-12
 
 ### Added

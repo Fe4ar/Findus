@@ -19,7 +19,7 @@ class Node(models.Model):
     REVISIONED = (PAGE, MAP)
     # Separate trees: the wiki and the network maps of the "Karte" tab.
     WIKI, KARTE = "wiki", "karte"
-    SPACE_KINDS = {WIKI: (AREA, FOLDER, PAGE, FILE), KARTE: (AREA, FOLDER, MAP, LINK)}
+    SPACE_KINDS = {WIKI: (AREA, FOLDER, PAGE, FILE), KARTE: (AREA, FOLDER, PAGE, MAP, LINK)}
     DRAFT, PUBLISHED = "draft", "published"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
