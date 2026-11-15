@@ -5,8 +5,11 @@ from .models import AuditLog
 
 
 def client_ip(request):
-    # web is reachable only through Caddy, which sets X-Forwarded-For (keeping the entry of a reverse proxy in front).
-    raw = (request.META.get("HTTP_X_FORWARDED_FOR") or "").split(",")[0].strip() or request.META.get("REMOTE_ADDR", "")
+    # web is reachable only through Caddy (no published port of its own); Caddy resolves the real client IP (trusted_proxies in
+    # the Caddyfile keeps a trusted reverse proxy's entry, ignores a client's own X-Forwarded-For otherwise) and sends it as
+    # X-Real-IP, which nothing else can set. A raw X-Forwarded-For is never trusted: it can carry a client-supplied first value
+    # (classic bypass of IP-based throttling), and nothing with internal access speaks to the app except through this Caddy.
+    raw = request.META.get("HTTP_X_REAL_IP") or request.META.get("REMOTE_ADDR", "")
     try:
         return str(ipaddress.ip_address(raw))
     except ValueError:

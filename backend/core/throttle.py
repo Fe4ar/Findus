@@ -10,6 +10,7 @@ from datetime import timedelta
 
 from django.db import transaction
 from django.utils import timezone
+from rest_framework.throttling import SimpleRateThrottle
 
 from .audit import client_ip
 from .models import LoginThrottle
@@ -50,3 +51,16 @@ def record_failure(ks):
 
 def record_success(ks):
     LoginThrottle.objects.filter(key__in=[k for kind, k in ks if kind == "user"]).delete()
+
+
+class ExpensiveThrottle(SimpleRateThrottle):
+    """Shared limit for endpoints that cost real work per call (PDF conversion, ZIP export, full-text search): one scope per
+    signed-in user (or address, for the rare anonymous call), so a single account cannot run the server out of resources by
+    looping a request. Generous on purpose; this is about abuse, not about normal use.
+    Same shortcut as PublicThrottle in public.py: the cache is per worker process (3 workers), so the effective limit is about
+    3x the configured rate; a shared cache (e.g. Redis) would tighten it, not done here."""
+    scope = "expensive"
+
+    def get_cache_key(self, request, view):
+        ident = str(request.user.pk) if request.user and request.user.is_authenticated else self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}

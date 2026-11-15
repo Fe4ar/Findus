@@ -80,7 +80,11 @@
 
 	@django path /api/* /wopi/* /admin /admin/* /media-dl/* /static/*
 	handle @django {
-		reverse_proxy web:8000
+		# The client IP Caddy resolved (via trusted_proxies above): correct behind NPM, immune to a client's own X-Forwarded-For,
+		# since web is reachable only through this Caddy (no published port of its own) and this header is set here, never passed through.
+		reverse_proxy web:8000 {
+			header_up X-Real-IP {http.request.remote.host}
+		}
 	}
 
 	handle {

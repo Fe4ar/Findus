@@ -2,6 +2,13 @@
 
 All notable changes, newest first. Format after [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [0.9.9] - 2026-11-15
+
+### Fixed
+- The brute-force lock on login no longer trusts a client's own `X-Forwarded-For`: Caddy now resolves the real client address (honouring a trusted reverse proxy in front, ignoring anything a client sends directly) and passes it on as `X-Real-IP`, which only Caddy can set since the app has no address of its own. Before this, sending a different `X-Forwarded-For` on every attempt let the per-address lock be sidestepped while really hammering from one place; the per-account lock still applied
+- Search, page/folder export and the folder ZIP export now share one generous per-account rate limit, so a script cannot loop one of them to tie up the server; normal use is unaffected
+- Moving a page or folder to an absurd position (far outside a normal integer) failed with a server error instead of a clear message
+
 ## [0.9.8] - 2026-11-13
 
 ### Added

@@ -12,11 +12,12 @@ import zipfile
 import nh3
 from django.contrib.postgres.search import SearchHeadline, SearchQuery, SearchRank
 from django.db.models import F
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, throttle_classes
 from rest_framework.response import Response
 
 from .models import Node
 from .permissions import is_public, READ, can
+from .throttle import ExpensiveThrottle
 
 # A tsvector may not exceed 1 MB; plain text of that length is far beyond any useful document.
 MAX_CHARS = 200_000
@@ -133,6 +134,7 @@ def exact_snippet(text, pats):
 
 
 @api_view(["GET"])
+@throttle_classes([ExpensiveThrottle])
 def search(request):
     q = request.query_params
     return Response(run(request.user, q.get("q", ""), q.get("faq") == "1", q.getlist("scope"), q.get("match") == "exact"))

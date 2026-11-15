@@ -9,7 +9,7 @@ from django.conf import settings
 from django.db import transaction
 from django.http import FileResponse, JsonResponse
 from django.utils import timezone
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, throttle_classes
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
@@ -18,6 +18,7 @@ from .export import collect, safe
 from .files import _save_version, _uploaded
 from .models import FileVersion, Node
 from .permissions import PUBLISH, WRITE, can, can_download
+from .throttle import ExpensiveThrottle
 from .views import node_or_404
 
 MAX_DEPTH = 12
@@ -76,6 +77,7 @@ MAX_PDF_PAGES = 60  # each page is a conversion round trip to OnlyOffice; beyond
 
 
 @api_view(["GET"])
+@throttle_classes([ExpensiveThrottle])
 def export_originals(request, node_id):
     """ZIP with the newest original of every readable file below a folder or area and every readable page as PDF, structure kept."""
     node = node_or_404(request.user, node_id)

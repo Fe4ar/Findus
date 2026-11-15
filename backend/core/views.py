@@ -476,7 +476,13 @@ def node_view(request, node_id):
         node.parent = target
         node.__dict__.pop("_findus_chain", None)  # rights are inherited from the new place from now on
     if "position" in data:
-        node.position = int(data["position"])
+        try:
+            pos = int(data["position"])
+        except (TypeError, ValueError):
+            raise ValidationError({"position": "Zahl erwartet."})
+        if not -2_000_000_000 <= pos <= 2_000_000_000:  # keeps a plain SQL integer column from erroring out on an absurd value
+            raise ValidationError({"position": "Zahl zu groß."})
+        node.position = pos
     node.updated_by = request.user
     node.save()
     after = {"title": node.title, "status": node.status, "parent": str(node.parent_id or ""), "is_public": node.is_public}

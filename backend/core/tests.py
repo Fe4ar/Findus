@@ -600,14 +600,14 @@ def test_audit_log(admin, db, client):
     _grant(admin, area, "Leser", can_read=True)
     admin.delete(f"/api/nodes/{folder}")
     APIClient().post("/api/auth/login", {"username": "chef", "password": "falsch"}, format="json",
-                     HTTP_X_FORWARDED_FOR="198.51.100.20, 192.0.2.32")
+                     HTTP_X_REAL_IP="198.51.100.20", HTTP_X_FORWARDED_FOR="203.0.113.1")  # only Caddy's X-Real-IP is trusted, not a client's own X-Forwarded-For
     APIClient().post("/api/auth/login", {"username": "chef", "password": "x-test-pass-1"}, format="json")
     log = list(AuditLog.objects.order_by("id").values_list("action", "node_title", "username"))
     assert [a for a, _, _ in log] == ["create", "create", "update", "create", "move", "permissions", "delete",
                                       "login_failed", "login"]
     assert log[2][1] == "B" and log[-1][2] == "chef"
     failed = AuditLog.objects.get(action="login_failed")
-    assert failed.ip == "198.51.100.20" and failed.user is None and failed.username == "chef"
+    assert failed.ip == "198.51.100.20" and failed.user is None and failed.username == "chef"  # from X-Real-IP, the spoofed X-Forwarded-For is ignored
     assert AuditLog.objects.get(action="permissions").details["after"] == {
         "Leser": {"can_read": True, "can_write": False, "can_publish": False, "can_manage": False}}
 
@@ -1800,10 +1800,15 @@ def test_login_lock_per_address_and_old_failures_expire(db):
     from .throttle import LIMITS
     c = APIClient()
     for i in range(LIMITS["ip"]):  # a different name every time: only the address key can lock
-        assert c.post("/api/auth/login", {"username": f"nobody{i}", "password": "x"}, format="json", HTTP_X_FORWARDED_FOR="203.0.113.7").status_code == 400
-    r = c.post("/api/auth/login", {"username": "nobody-new", "password": "x"}, format="json", HTTP_X_FORWARDED_FOR="203.0.113.7")
+        assert c.post("/api/auth/login", {"username": f"nobody{i}", "password": "x"}, format="json", HTTP_X_REAL_IP="203.0.113.7").status_code == 400
+    r = c.post("/api/auth/login", {"username": "nobody-new", "password": "x"}, format="json", HTTP_X_REAL_IP="203.0.113.7")
     assert r.status_code == 429
-    assert c.post("/api/auth/login", {"username": "nobody-new", "password": "x"}, format="json", HTTP_X_FORWARDED_FOR="203.0.113.8").status_code == 400
+    assert c.post("/api/auth/login", {"username": "nobody-new", "password": "x"}, format="json", HTTP_X_REAL_IP="203.0.113.8").status_code == 400
+    # A client's own X-Forwarded-For never counts, only X-Real-IP (set by Caddy, which is the only way to reach the app): otherwise
+    # sending a different forged value on every attempt would let the address-based lock be sidestepped while really hammering from one place.
+    for i in range(LIMITS["ip"]):
+        assert c.post("/api/auth/login", {"username": f"spoof{i}", "password": "x"}, format="json", HTTP_X_REAL_IP="203.0.113.9", HTTP_X_FORWARDED_FOR=f"1.2.3.{i}").status_code == 400
+    assert c.post("/api/auth/login", {"username": "spoof-new", "password": "x"}, format="json", HTTP_X_REAL_IP="203.0.113.9", HTTP_X_FORWARDED_FOR="9.9.9.9").status_code == 429
     # Failures older than the window start from zero again.
     LoginThrottle.objects.filter(key="user:slow").delete()
     LoginThrottle.objects.create(key="user:slow", fails=4, last_fail=timezone.now() - timedelta(minutes=20))
@@ -2733,3 +2738,32 @@ def test_share_single_pages_and_files_with_teams_and_users(admin, db):
     assert sc.patch(f"/api/nodes/{page}", {"title": "Von Solo"}, format="json").status_code == 200
     assert sc.put(f"/api/nodes/{page}/shares", {"teams": [], "users": []}, format="json").status_code in (403, 404)
     assert oc.delete(f"/api/nodes/{page}").status_code == 204
+
+
+def test_expensive_endpoints_are_rate_limited_per_user(admin, db, settings):
+    """Search, export and the folder-ZIP export share one generous per-account limit, so a script cannot loop one of them to
+    run the server out of resources; normal use (a handful of calls) is unaffected."""
+    from rest_framework.throttling import SimpleRateThrottle
+    settings.REST_FRAMEWORK = {**settings.REST_FRAMEWORK, "DEFAULT_THROTTLE_RATES": {**settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"], "expensive": "3/min"}}
+    SimpleRateThrottle.THROTTLE_RATES = settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]
+    from django.core.cache import cache
+    cache.clear()
+    area = create(admin, "area", "Last")
+    codes = [admin.get(f"/api/search?q=x").status_code for _ in range(5)]
+    assert codes[:3] == [200, 200, 200] and 429 in codes[3:], codes
+    # a different signed-in user has their own, unaffected budget
+    other, oc = _member("tilo")
+    assert oc.get("/api/search?q=x").status_code == 200
+    cache.clear()
+
+
+def test_xff_header_from_the_client_is_never_trusted_for_the_login_lock(db):
+    """Only X-Real-IP (set by Caddy, unreachable from the outside: core/audit.py:client_ip) counts for the per-address
+    brute-force lock; a client sending its own X-Forwarded-For must not be able to look like a different address each try."""
+    from .throttle import LIMITS
+    c = APIClient()
+    for i in range(LIMITS["ip"]):
+        assert c.post("/api/auth/login", {"username": f"spoof{i}", "password": "x"}, format="json",
+                      HTTP_X_REAL_IP="198.51.100.50", HTTP_X_FORWARDED_FOR=f"10.0.0.{i}").status_code == 400
+    assert c.post("/api/auth/login", {"username": "spoof-new", "password": "x"}, format="json",
+                  HTTP_X_REAL_IP="198.51.100.50", HTTP_X_FORWARDED_FOR="10.0.0.99").status_code == 429

@@ -104,6 +104,6 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.SessionAuthentication"],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.AllowAny"],
-    "DEFAULT_THROTTLE_RATES": {"public": "120/min"},
+    "DEFAULT_THROTTLE_RATES": {"public": "120/min", "expensive": "60/min"},
     "UNAUTHENTICATED_USER": "django.contrib.auth.models.AnonymousUser",
 }
